@@ -1,6 +1,6 @@
 <template>
   <div class="ab-action-config">
-    <div v-for="field in schema" :key="field.name" class="ab-config-group">
+    <div v-for="field in schema" :key="field.name" class="ab-config-group" v-show="isFieldVisible(field)">
       <label>{{ field.label }}</label>
       <p v-if="field.description" class="ab-config-hint">{{ field.description }}</p>
 
@@ -106,6 +106,15 @@ const doctypes = ref([])
 const targetFields = ref([])
 const emailTemplates = ref([])
 const tokenPlaceholder = '{{trigger.fieldname}}'
+
+function isFieldVisible(field) {
+  if (!field.depends_on) return true
+  const depValue = props.config[field.depends_on]
+  if (field.depends_on_value !== undefined) {
+    return depValue === field.depends_on_value
+  }
+  return !!depValue
+}
 
 function update(fieldName, value) {
   emit('update:config', { ...props.config, [fieldName]: value })

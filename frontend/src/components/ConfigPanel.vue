@@ -128,7 +128,11 @@ function onActionTypeChange() {
   const schema = currentSchema.value
   const newLocal = { action_type: local.value.action_type }
   for (const field of schema) {
-    newLocal[field.name] = field.type === 'field_mapping_table' ? [{ target_field: '', source_value: '' }] : ''
+    if (field.type === 'field_mapping_table') {
+      newLocal[field.name] = [{ target_field: '', source_value: '' }]
+    } else {
+      newLocal[field.name] = field.default !== undefined ? field.default : ''
+    }
   }
   local.value = newLocal
 }

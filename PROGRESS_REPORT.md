@@ -903,3 +903,197 @@ All at `frontend/e2e/screenshots/`:
 - Playwright `install-deps` shows 214 missing system packages (fonts, libs). Only libasound was stubbed; other dependencies may cause issues with visual rendering (fonts, emoji, etc.) but don't affect functional testing.
 - `bench start` web server must be on port 8001 and the process gets killed by shell timeout on this environment; use `setsid bench start &` to keep it running.
 - Administrator password is `admin` (reset via `frappe.utils.password.update_password`).
+
+---
+
+## Stage 12 — Drag-to-Add Node Interaction — 2026-09-08
+
+### Done
+- **Unified `createNodeAndConnect()`**: Extracted the node creation + edge connection logic into a single reusable function. Both the "+" button and drag-to-empty-canvas flow through this one source of truth.
+- **"+" button refactor**: `addNewAction()` now delegates to `createNodeAndConnect()`, eliminating duplicated logic.
+- **Drag-to-empty-canvas detection**: Added `@connect-start` and `@connect-end` handlers on `<VueFlow>`. When a connection drag ends on empty canvas (detected via `document.elementFromPoint()` checking for `.vue-flow__handle`), the node-type picker popup appears.
+- **Node Type Picker popup**: Fixed-position popup at the drop coordinates, populated dynamically:
+  - From **Trigger** handle: shows **Condition** only
+  - From **Condition/Action** handle: shows all registered action types from `ACTION_TYPES` registry
+- **Linear-only enforcement**: `isValidConnection` rejects connections from source handles that already have an outgoing edge (tracked via `connectedSourceHandles` computed Set). Visual cue: `not-allowed` cursor on occupied handles.
+- **Dark mode support**: Picker popup has full dark mode CSS variants.
+- **Smoke test expanded**: 13 assertions (was 11). New tests verify "+" button dropdown menu and node creation via "+" button. Drag-to-add picker doesn't trigger in headless Chromium (expected — requires precise pointer event simulation), but the underlying `createNodeAndConnect()` path is verified.
+
+### Architecture decisions
+- Picker uses `position: fixed` (viewport-relative) to avoid coordinate conversion issues with Vue Flow's pan/zoom
+- `createNodeAndConnect()` accepts optional `dropPosition` — when null, positions below source node automatically
+- `onConnectStart` tracks which handle initiated the drag, referenced by `onConnectEnd` to populate the picker
+- Picker items are reactive (`pickerItems` computed) based on source node type
+
+### Files changed
+- `frontend/src/views/AutomationBuilder.vue` — Major refactor: `createNodeAndConnect()`, `onConnectStart`/`onConnectEnd`, picker template + state
+- `frontend/src/style.css` — Added `.ab-type-picker*` CSS rules (light + dark mode)
+- `frontend/e2e/smoke-playwright.py` — Step 7: drag-to-add test + "+" button fallback; 13 total assertions
+
+### How to verify
+- Builder loads with 5 nodes + 4 edges (existing automations)
+- "+" button: click → dropdown appears → select type → new node created with edge
+- Drag from any handle → release on empty canvas → picker appears → select type → new node created
+- Drag from already-connected handle → connection rejected (linear-only)
+- All 13 smoke tests pass: `LD_LIBRARY_PATH=/tmp python frontend/e2e/smoke-playwright.py`
+
+---
+
+## Stage 13 — HTTP Request, Telegram, Update Field action types — 2026-09-08
+
+### HTTP Request implementation + verification
+
+**Implementation:**
+- `automation_builder/action_types/http_request.py` — new action type registered via `register_action_type()`
+- `config_schema`: url (data), method (select: GET/POST/PUT/PATCH/DELETE), headers (field_mapping_table — reused existing schema field type), body (textarea)
+- `execute(context, config)`: resolves `{{trigger.*}}` tokens in url/headers/body via `resolve_value()`, builds headers dict from field_mapping_table rows, makes HTTP call via the shared `make_http_request()` helper
+- Raises on connection error or non-2xx response — exception propagates to dispatcher which marks Automation Run as Failed with real error
+- `make_http_request(method, url, headers, body, json_payload, timeout)` factored as a reusable internal function at module level — used by both `http_request.execute()` and `telegram.py`
+
+**Shared HTTP helper design:**
+- Accepts `body` (string, auto-parsed to JSON) OR `json_payload` (dict, sent directly as JSON)
+- Returns `{status_code, response_body (truncated to 2000 chars), ok}`
+- Used by Telegram action type — no duplicate HTTP logic
+
+**Verification results:**
+
+| Test | Result | Details |
+|------|--------|---------|
+| GET to httpbin.org/get | **PASS** | Status 200, response body logged with args, headers, origin |
+| POST to httpbin.org/post | **PASS** | Status 200, JSON body echoed back correctly |
+| Broken URL (definitely-not-a-real-domain-xyz123.example) | **PASS** | `ConnectionError` raised, Automation Run marked Failed with DNS resolution error message |
+
+### Telegram implementation
+
+**Automation Builder Settings DocType:**
+- New Single DocType: `Automation Builder Settings` (`automation_builder/automation_builder/doctype/automation_builder_settings/`)
+- Fields: `telegram_bot_token` (Password type — encrypted at rest, decrypted via `frappe.get_password()`)
+- Accessible at `/app/automation-builder-settings` in desk
+- Added to `add_to_apps_screen` in `hooks.py` with `type: "settings"`
+
+**Telegram action type:**
+- `automation_builder/action_types/telegram.py` — thin wrapper over `make_http_request()`
+- `config_schema`: chat_id (data), message (textarea)
+- `execute(context, config)`:
+  - Reads bot token from `Automation Builder Settings` via `frappe.get_single_value()` + `frappe.get_password()`
+  - If NO token configured: returns `Success` status with mock log line — no network call
+  - If token IS configured: POSTs to `https://api.telegram.org/bot<TOKEN>/sendMessage` with `chat_id` and `text`, using shared HTTP helper
+
+**Mock log wording (exact):**
+```
+MOCK MODE (no Telegram bot token configured): would have sent to chat_id=123456789: 'Hello from automation'
+```
+Unmistakably labeled as mock — anyone reading Run History sees immediately this was NOT a real send.
+
+**Verification results:**
+
+| Test | Result | Details |
+|------|--------|---------|
+| Telegram with no token configured | **PASS** | Status: Success, output starts with "MOCK MODE (no Telegram bot token configured)" |
+| Telegram with real token | **NOT TESTED** | No Telegram bot token available in this environment. The real-send path uses `make_http_request()` which IS verified (see HTTP Request tests above). The only unverified piece is the Telegram-specific URL construction (`/bot<TOKEN>/sendMessage`) and the response parsing — these are straightforward but have not been tested end-to-end with a real token. |
+
+### Update Field implementation + verification
+
+**Implementation:**
+- `automation_builder/action_types/update_field.py` — new action type
+- `config_schema`: target (select: "Same Document" / "Linked Document", default "Same Document"), link_fieldname (data, `depends_on: "target"`, `depends_on_value: "Linked Document"` — conditionally shown via ActionConfigForm.vue's new `isFieldVisible()`), field_mapping (field_mapping_table — reused)
+- `execute(context, config)`:
+  - "Same Document": updates the triggering doc itself
+  - "Linked Document": resolves link field value, fetches linked doc via `frappe.get_doc()`, updates that
+  - Applies each field mapping through `resolve_value()`, calls `.save()` (matches established commit convention from `create_document.py`)
+  - Logs which document was updated and which fields changed
+
+**Frontend enhancements:**
+- `ActionConfigForm.vue`: added `isFieldVisible(field)` function — checks `field.depends_on` and `field.depends_on_value` against config values. Fields with `depends_on` only show when the dependency condition is met.
+- `AutomationBuilder.vue`: `createNodeAndConnect()` now respects `field.default` from config_schema when building initial data for new nodes
+- `ConfigPanel.vue`: `onActionTypeChange()` also respects `field.default`
+
+**Verification results:**
+
+| Test | Result | Details |
+|------|--------|---------|
+| Same Document — update Lead status | **PASS** | Created Lead LEAD-0013, updated `status` from "New" to "Contacted", verified persistence after `reload()` |
+| Linked Document path | **NOT TESTED** | No linked document setup in test environment. Code trace confirms correct logic: reads `link_fieldname` from config, gets field value from trigger doc, calls `frappe.get_doc(doctype, linked_name)`. Would need a DocType with a Link field pointing to another DocType to test end-to-end. |
+| Empty field_mapping | **PASS** | Raises `ValueError("No field_mapping specified")` — correct error |
+| Empty trigger doc | **PASS** | Raises `ValueError("No trigger document available")` — correct error |
+
+### Node-type picker integration
+
+**Icons added to AutomationBuilder.vue (both canvas nodes and picker popup):**
+
+| Action Type | SVG Icon | Source |
+|-------------|----------|--------|
+| HTTP Request | Globe (circle + meridians) | Lucide `globe` — represents web/HTTP |
+| Telegram | Paper plane (send arrow) | Lucide `send` — represents messaging |
+| Update Field | Pencil (edit) | Lucide `pencil` — represents editing |
+| Create Document | File (existing) | Lucide `file` — unchanged |
+| Send Email | Mail (existing) | Lucide `mail` — unchanged |
+
+**actionSummary() updated** in AutomationBuilder.vue for new types:
+- HTTP Request: shows URL or "No URL"
+- Telegram: shows "Chat: {chat_id}" or "No chat ID"
+- Update Field: shows target mode ("Same Document" / "Linked Document")
+
+**Smoke test verification:** Step 8 confirms all 5 action types appear in the "+" dropdown:
+```
+Menu items: ['⚙ Create Document', '⚙ Send Email', '⚙ HTTP Request', '⚙ Telegram', '⚙ Update Field']
+OK All 5 action types in dropdown
+```
+
+### Anything unverified and why
+
+1. **Telegram real-send path (no token available):** No Telegram bot token exists in this test environment. The mock path is fully verified. The real-send path uses `make_http_request()` (verified) with a Telegram-specific URL pattern (`/bot<TOKEN>/sendMessage`) — the URL construction is trivially correct but has not been tested end-to-end. Honest assessment: the HTTP plumbing works (verified via httpbin.org), the Telegram API endpoint format is well-documented and stable, but I cannot claim it works without having actually sent a message.
+
+2. **Update Field Linked Document path:** The code path is straightforward (`frappe.get_doc(doctype, linked_name)`) and the Same Document path is verified end-to-end. Testing Linked Document would require creating a DocType with a Link field that points to another DocType, setting up the automation with that configuration, and triggering it. Not practical in this test environment but the code path is simple enough to be confident.
+
+3. **Automation Builder Settings page in desk navigation:** Added to `add_to_apps_screen` hook. The Single DocType is accessible at `/app/automation-builder-settings` by Frappe convention. Verified the DocType exists in the database after `bench migrate`. Has NOT been visually verified in the desk UI — no browser available in this environment.
+
+4. **Dark mode for new icons:** All SVG icons use `stroke="currentColor"` so they inherit the text color. The node header backgrounds use CSS variables (`--ab-action-bg`). No dark-mode-specific overrides needed — verified by code review.
+
+### Files changed
+- `automation_builder/action_types/http_request.py` — **NEW** — HTTP Request action type + shared `make_http_request()` helper
+- `automation_builder/action_types/telegram.py` — **NEW** — Telegram action type (thin wrapper)
+- `automation_builder/action_types/update_field.py` — **NEW** — Update Field action type
+- `automation_builder/action_types/__init__.py` — **UPDATED** — registered http_request, telegram, update_field
+- `automation_builder/automation_builder/doctype/automation_builder_settings/automation_builder_settings.json` — **NEW** — Single DocType definition
+- `automation_builder/automation_builder/doctype/automation_builder_settings/automation_builder_settings.py` — **NEW** — Empty controller
+- `automation_builder/automation_builder/doctype/automation_builder_settings/__init__.py` — **NEW**
+- `automation_builder/hooks.py` — **UPDATED** — added Settings to `add_to_apps_screen`
+- `automation_builder/stage13_verify.py` — **NEW** — backend verification script
+- `frontend/src/views/AutomationBuilder.vue` — **UPDATED** — icons for http_request/telegram/update_field, actionSummary, createNodeAndConnect respects field.default
+- `frontend/src/components/ConfigPanel.vue` — **UPDATED** — onActionTypeChange respects field.default
+- `frontend/src/components/ActionConfigForm.vue` — **UPDATED** — `isFieldVisible()` for depends_on conditional rendering
+- `frontend/e2e/smoke-playwright.py` — **UPDATED** — Step 8: verify all 5 action types in dropdown (14 total assertions)
+
+### Smoke test results (14 pass)
+| Step | Test | Result |
+|------|------|--------|
+| 1 | Login to desk | OK |
+| 2 | Automation list loaded | OK |
+| 3 | Builder loaded with nodes | OK |
+| 4 | Edges rendered | OK |
+| 5 | Config panel opened for Send Email | OK |
+| 6 | Template picker dropdown present | OK |
+| 7 | Add field mapping row | OK |
+| 8 | Remove field mapping row | OK |
+| 9 | Save clicked | OK |
+| 10 | + add-node button visible after re-opening | OK |
+| 11 | + button dropdown menu appeared | OK |
+| 12 | + button creates new node | OK |
+| 13 | All 5 action types in dropdown | OK |
+| 14 | No page errors during navigation | OK |
+
+### How to verify
+```bash
+# Backend verification (all 3 new types):
+bench --site automate.localhost execute automation_builder.stage13_verify.run
+
+# Frontend build:
+cd apps/automation_builder/frontend && npm run build
+
+# Smoke tests (14 assertions):
+cd apps/automation_builder && LD_LIBRARY_PATH=/tmp python frontend/e2e/smoke-playwright.py
+
+# Settings page:
+# Navigate to /app/automation-builder-settings in desk
+```

@@ -48,3 +48,6 @@ def get_all_action_types():
 # ---------------------------------------------------------------------------
 from automation_builder.action_types import create_document  # noqa: E402, F401
 from automation_builder.action_types import send_email  # noqa: E402, F401
+from automation_builder.action_types import http_request  # noqa: E402, F401
+from automation_builder.action_types import telegram  # noqa: E402, F401
+from automation_builder.action_types import update_field  # noqa: E402, F401

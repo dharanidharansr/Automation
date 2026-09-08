@@ -30,5 +30,11 @@ add_to_apps_screen = [
         "name": "automation_builder",
         "title": "Automation Builder",
         "route": "/app/spa-builder",
-    }
+    },
+    {
+        "name": "automation_builder_settings",
+        "title": "Automation Builder Settings",
+        "route": "/app/automation-builder-settings",
+        "type": "settings",
+    },
 ]

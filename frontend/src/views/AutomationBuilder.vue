@@ -28,6 +28,8 @@
           :connection-line-style="{ stroke: 'var(--blue-500)', strokeWidth: 2 }"
           :is-valid-connection="isValidConnection"
           @connect="onConnect"
+          @connect-start="onConnectStart"
+          @connect-end="onConnectEnd"
         >
           <template #node-trigger="nodeProps">
             <div class="ab-node ab-node-trigger" @click="selectNode('trigger', nodeProps.data)">
@@ -67,6 +69,9 @@
               <Handle type="source" :position="Position.Bottom" :id="nodeProps.id + '-out'" />
               <div class="ab-node-header">
                 <svg v-if="nodeProps.data.action_type === 'send_email'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                <svg v-else-if="nodeProps.data.action_type === 'http_request'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                <svg v-else-if="nodeProps.data.action_type === 'telegram'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                <svg v-else-if="nodeProps.data.action_type === 'update_field'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                 <svg v-else class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M9 11h6"/></svg>
                 <span class="ab-node-title">Action</span>
               </div>
@@ -102,6 +107,30 @@
           <Background :gap="15" :size="2.5" :pattern-color="'#666'" />
           <Controls />
         </VueFlow>
+
+        <!-- Node Type Picker (shown on drag-to-empty-canvas) -->
+        <div
+          v-if="pickerVisible"
+          class="ab-type-picker"
+          :style="{ left: pickerPosition.x + 'px', top: pickerPosition.y + 'px' }"
+        >
+          <button
+            v-for="item in pickerItems"
+            :key="item.key"
+            class="ab-type-picker-item"
+            @click="onPickerSelect(item)"
+          >
+            <span class="ab-type-picker-icon" :class="item.iconClass">
+              <svg v-if="item.key === 'condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <svg v-else-if="item.key === 'send_email'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+              <svg v-else-if="item.key === 'http_request'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <svg v-else-if="item.key === 'telegram'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+              <svg v-else-if="item.key === 'update_field'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M9 11h6"/></svg>
+            </span>
+            <span class="ab-type-picker-label">{{ item.label }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -139,6 +168,12 @@ const enabled = ref(true)
 const saving = ref(false)
 const showAddMenu = ref(null)
 const actionTypes = ref([])
+
+// Type picker state (for drag-to-empty-canvas)
+const pickerVisible = ref(false)
+const pickerPosition = ref({ x: 0, y: 0 })
+const pickerSourceNodeId = ref('')
+const pickerSourceHandleId = ref('')
 
 const nodes = ref([
   {
@@ -238,6 +273,34 @@ const triggerDoctype = computed(() => {
   return trigger?.data?.trigger_doctype || ''
 })
 
+// Which source handles already have an outgoing edge (linear-only enforcement)
+const connectedSourceHandles = computed(() => {
+  const connected = new Set()
+  for (const e of edges.value) {
+    if (e.sourceHandle) {
+      connected.add(`${e.source}:${e.sourceHandle}`)
+    }
+  }
+  return connected
+})
+
+// Picker items depend on which node we're dragging from
+const pickerItems = computed(() => {
+  const sourceNode = nodes.value.find(n => n.id === pickerSourceNodeId.value)
+  if (!sourceNode) return []
+
+  if (sourceNode.type === 'trigger') {
+    return [{ key: 'condition', label: 'Condition', iconClass: 'ab-type-picker-icon--condition' }]
+  }
+
+  // Condition or Action: show all registered action types
+  return actionTypes.value.map(at => ({
+    key: at.key,
+    label: at.label,
+    iconClass: 'ab-type-picker-icon--action',
+  }))
+})
+
 function actionLabel(data) {
   const at = actionTypes.value.find(a => a.key === data.action_type)
   return at ? at.label : data.action_type || 'Unknown'
@@ -249,6 +312,15 @@ function actionSummary(data) {
   }
   if (data.action_type === 'send_email') {
     return `To: ${data.recipient || '...'}`
+  }
+  if (data.action_type === 'http_request') {
+    return data.url || 'No URL'
+  }
+  if (data.action_type === 'telegram') {
+    return data.chat_id ? `Chat: ${data.chat_id}` : 'No chat ID'
+  }
+  if (data.action_type === 'update_field') {
+    return data.target || 'Select target'
   }
   return 'Click to configure'
 }
@@ -279,10 +351,16 @@ function closeAddMenu() {
 
 function isValidConnection(params) {
   if (params.id) return true
-  const { source, target, sourceHandle, targetHandle } = params
+  const { source, sourceHandle, target, targetHandle } = params
   if (source === target) return false
   if (target === 'trigger') return false
   if (source === 'add-trigger') return false
+
+  // Linear-only: reject if source handle already has an outgoing edge
+  if (sourceHandle && connectedSourceHandles.value.has(`${source}:${sourceHandle}`)) {
+    return false
+  }
+
   const existingTarget = edges.value.find(e => e.target === target && e.targetHandle === targetHandle)
   if (existingTarget) return false
   return true
@@ -302,65 +380,95 @@ function onConnect(params) {
   edges.value.push(newEdge)
 }
 
-function addNewAction(actionType) {
-  const lastAction = [...nodes.value].filter(n => n.type === 'action').pop()
-  const lastY = lastAction ? lastAction.position.y + 170 : 450
-  const newId = `action-${Date.now()}`
+/**
+ * Unified node creation + edge connection.
+ * This is the single source of truth for adding nodes to the canvas.
+ * Used by both the "+" button and the drag-to-empty-canvas picker.
+ *
+ * @param {string} nodeType - 'condition' or 'action'
+ * @param {string} actionType - action type key (only for action nodes)
+ * @param {string} sourceNodeId - id of the node we're connecting from
+ * @param {string} sourceHandleId - handle id on the source node
+ * @param {object} [dropPosition] - { x, y } canvas coords for node placement
+ */
+function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId, dropPosition) {
+  const sourceNode = nodes.value.find(n => n.id === sourceNodeId)
+  if (!sourceNode) return
 
-  // Build default data from the action type's config_schema
-  const at = actionTypes.value.find(a => a.key === actionType)
-  const defaultData = { action_type: actionType }
-  if (at && at.config_schema) {
-    for (const field of at.config_schema) {
-      if (field.type === 'field_mapping_table') {
-        defaultData[field.name] = [{ target_field: '', source_value: '' }]
-      } else {
-        defaultData[field.name] = ''
+  let newNodeId, newNodeData, newNodePosition
+
+  if (nodeType === 'condition') {
+    newNodeId = 'condition'
+    newNodeData = { condition_field: '', condition_operator: '=', condition_value: '' }
+    // Position below source, or use drop position
+    newNodePosition = dropPosition || { x: sourceNode.position.x, y: sourceNode.position.y + 170 }
+  } else {
+    newNodeId = `action-${Date.now()}`
+    // Build default data from the action type's config_schema
+    const at = actionTypes.value.find(a => a.key === actionType)
+    newNodeData = { action_type: actionType }
+    if (at && at.config_schema) {
+      for (const field of at.config_schema) {
+        if (field.type === 'field_mapping_table') {
+          newNodeData[field.name] = [{ target_field: '', source_value: '' }]
+        } else {
+          newNodeData[field.name] = field.default !== undefined ? field.default : ''
+        }
       }
     }
+    newNodePosition = dropPosition || { x: sourceNode.position.x, y: sourceNode.position.y + 170 }
   }
 
-  // Insert new action node before the add-trigger node
+  // Insert the new node
   const addTriggerIdx = nodes.value.findIndex(n => n.id === 'add-trigger')
   nodes.value.splice(addTriggerIdx, 0, {
-    id: newId,
-    type: 'action',
-    position: { x: 250, y: lastY },
-    data: defaultData,
+    id: newNodeId,
+    type: nodeType,
+    position: newNodePosition,
+    data: newNodeData,
   })
 
-  // Update edges: remove old action→add edge, add new edges
-  const lastNodeId = lastAction?.id || 'action-1'
-  const oldAddEdge = edges.value.find(e => e.source === lastAction?.id && e.target === 'add-trigger')
-  if (oldAddEdge) {
-    edges.value = edges.value.filter(e => e !== oldAddEdge)
+  // Create edge from source → new node
+  edges.value.push({
+    id: `e-${sourceNodeId}-${newNodeId}`,
+    source: sourceNodeId,
+    target: newNodeId,
+    sourceHandle: sourceHandleId,
+    targetHandle: nodeType === 'condition' ? 'condition-in' : `${newNodeId}-in`,
+    type: 'smoothstep',
+    markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
+  })
+
+  // For action nodes: also connect new node → add-trigger
+  if (nodeType === 'action') {
+    edges.value.push({
+      id: `e-${newNodeId}-add-trigger`,
+      source: newNodeId,
+      target: 'add-trigger',
+      sourceHandle: `${newNodeId}-out`,
+      targetHandle: 'add-trigger-in',
+      type: 'smoothstep',
+      markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
+    })
   }
-
-  edges.value.push({
-    id: `e-${lastNodeId}-${newId}`,
-    source: lastNodeId,
-    target: newId,
-    sourceHandle: `${lastNodeId}-out`,
-    targetHandle: `${newId}-in`,
-    type: 'smoothstep',
-    markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
-  })
-  edges.value.push({
-    id: `e-${newId}-add-trigger`,
-    source: newId,
-    target: 'add-trigger',
-    sourceHandle: `${newId}-out`,
-    targetHandle: 'add-trigger-in',
-    type: 'smoothstep',
-    markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
-  })
 
   // Update add-trigger position
   const addTriggerNode = nodes.value.find(n => n.id === 'add-trigger')
   if (addTriggerNode) {
-    addTriggerNode.position.y = lastY + 170
+    addTriggerNode.position.y = newNodePosition.y + 170
   }
+}
 
+/**
+ * "+" button handler — delegates to createNodeAndConnect.
+ * Simulates "drag from last node's source handle and pick a type".
+ */
+function addNewAction(actionType) {
+  const lastAction = [...nodes.value].filter(n => n.type === 'action').pop()
+  const sourceNodeId = lastAction?.id || 'condition'
+  const sourceHandleId = lastAction ? `${lastAction.id}-out` : 'condition-out'
+
+  createNodeAndConnect('action', actionType, sourceNodeId, sourceHandleId)
   showAddMenu.value = null
 }
 
@@ -386,6 +494,58 @@ function removeActionNode(nodeId) {
     }
   }
   selectedNode.value = null
+}
+
+/**
+ * Handle connection drag end. If the drag ended on empty canvas (not on a handle),
+ * show the node-type picker at the drop position.
+ */
+function onConnectEnd(event) {
+  if (!event) return
+
+  // Check if the mouse is over a Vue Flow handle
+  const target = document.elementFromPoint(event.clientX, event.clientY)
+  if (target && target.closest('.vue-flow__handle')) {
+    // Dropped on a handle — Vue Flow handles the connection
+    return
+  }
+
+  // Dropped on empty canvas — show the type picker
+  const sourceNode = nodes.value.find(n => n.id === connectionStartNodeId.value)
+  if (!sourceNode) return
+
+  // Position picker at mouse cursor using fixed positioning (viewport-relative)
+  pickerSourceNodeId.value = connectionStartNodeId.value
+  pickerSourceHandleId.value = connectionStartHandleId.value
+  pickerPosition.value = {
+    x: event.clientX,
+    y: event.clientY,
+  }
+  pickerVisible.value = true
+}
+
+// Track which handle the connection drag started from
+const connectionStartNodeId = ref('')
+const connectionStartHandleId = ref('')
+
+function onConnectStart(params) {
+  connectionStartNodeId.value = params.nodeId
+  connectionStartHandleId.value = params.handleId
+}
+
+function onPickerSelect(item) {
+  createNodeAndConnect(
+    item.key === 'condition' ? 'condition' : 'action',
+    item.key === 'condition' ? null : item.key,
+    pickerSourceNodeId.value,
+    pickerSourceHandleId.value,
+    null, // auto-position below source node
+  )
+  pickerVisible.value = false
+}
+
+function closePicker() {
+  pickerVisible.value = false
 }
 
 async function save() {
@@ -435,6 +595,9 @@ function showRuns() {
 }
 
 function handleClickOutside(e) {
+  if (pickerVisible.value && !e.target.closest('.ab-type-picker')) {
+    pickerVisible.value = false
+  }
   if (showAddMenu.value && !e.target.closest('.ab-add-node-menu') && !e.target.closest('.ab-add-node-btn')) {
     showAddMenu.value = null
   }
