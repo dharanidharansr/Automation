@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:automation_name",
+ "creation": "2026-09-07 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "automation_name",
+  "trigger_section",
+  "trigger_doctype",
+  "trigger_event",
+  "condition_section",
+  "condition_field",
+  "condition_operator",
+  "condition_value",
+  "workflow_section",
+  "workflow_json",
+  "cb_enabled",
+  "enabled",
+  "description_section",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "automation_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Automation Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "trigger_section",
+   "fieldtype": "Section Break",
+   "label": "Trigger"
+  },
+  {
+   "fieldname": "trigger_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Trigger DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "trigger_event",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Trigger Event",
+   "options": "After Insert\nOn Update\nOn Submit\nOn Cancel",
+   "reqd": 1
+  },
+  {
+   "fieldname": "condition_section",
+   "fieldtype": "Section Break",
+   "label": "Condition"
+  },
+  {
+   "fieldname": "condition_field",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Condition Field"
+  },
+  {
+   "fieldname": "condition_operator",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Condition Operator",
+   "options": "=\n!=\n>\n<\n>=\n<="
+  },
+  {
+   "fieldname": "condition_value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Condition Value"
+  },
+  {
+   "fieldname": "workflow_section",
+   "fieldtype": "Section Break",
+   "label": "Workflow JSON"
+  },
+  {
+   "fieldname": "workflow_json",
+   "fieldtype": "Code",
+   "label": "Workflow JSON",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "cb_enabled",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "enabled",
+   "default": "1",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break",
+   "label": "Description",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Automation Builder",
+ "name": "Automation",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "report": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "automation_name",
+ "track_changes": 1
+}
