@@ -366,8 +366,15 @@
   flex-shrink: 0;
 }
 
+.ab-node-icon-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 /* Trigger: blue tint */
-.ab-node-trigger .ab-node-icon {
+.ab-node-trigger .ab-node-icon,
+.ab-node-trigger .ab-node-icon-svg {
   background: var(--bg-blue);
   color: var(--blue-500);
 }
@@ -377,7 +384,8 @@
 }
 
 /* Condition: amber tint */
-.ab-node-condition .ab-node-icon {
+.ab-node-condition .ab-node-icon,
+.ab-node-condition .ab-node-icon-svg {
   background: var(--bg-orange);
   color: var(--orange-500);
 }
@@ -387,7 +395,8 @@
 }
 
 /* Action: green tint */
-.ab-node-action .ab-node-icon {
+.ab-node-action .ab-node-icon,
+.ab-node-action .ab-node-icon-svg {
   background: var(--bg-green);
   color: var(--green-600);
 }
@@ -425,17 +434,20 @@
 
 /* Vue Flow handles */
 .vue-flow__handle {
-  width: 8px !important;
-  height: 8px !important;
+  width: 10px !important;
+  height: 10px !important;
   border-radius: 50% !important;
   background: var(--gray-400) !important;
   border: 2px solid var(--card-bg) !important;
-  transition: background 0.15s, transform 0.15s;
+  transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+  opacity: 0.6;
 }
 
 .vue-flow__handle:hover {
   background: var(--blue-500) !important;
-  transform: scale(1.3);
+  transform: scale(1.4);
+  opacity: 1;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
 }
 
 .vue-flow__handle-top {
@@ -448,13 +460,20 @@
 
 /* Vue Flow edges */
 .vue-flow__edge-path {
-  stroke: var(--gray-400);
-  stroke-width: 1.5;
+  stroke: var(--gray-500);
+  stroke-width: 2;
 }
 
 .vue-flow__edge.selected .vue-flow__edge-path {
   stroke: var(--blue-500);
+  stroke-width: 2.5;
+}
+
+/* Connection line while dragging */
+.vue-flow__connection-line {
+  stroke: var(--blue-500);
   stroke-width: 2;
+  stroke-dasharray: 5 5;
 }
 
 /* Vue Flow controls */
@@ -904,4 +923,18 @@
 
 [data-theme="dark"] .ab-add-node-menu {
   border-color: var(--border-color);
+}
+
+[data-theme="dark"] .vue-flow__edge-path {
+  stroke: var(--gray-500);
+}
+
+/* Connection validation feedback */
+.vue-flow__handle.connecting {
+  background: var(--red-500) !important;
+  transform: scale(1.5);
+}
+
+.vue-flow__connectioninvalid .vue-flow__connection-line {
+  stroke: var(--red-500) !important;
 }

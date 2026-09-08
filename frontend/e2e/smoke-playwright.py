@@ -95,20 +95,34 @@ def main():
             else:
                 fail("Automation list", "No rows found")
 
-            # ===== STEP 3: Open first automation =====
+            # ===== STEP 3: Open automation with actions =====
             print("\nStep 3: Open automation in builder")
             rows = page.query_selector_all(".ab-list-row")
             if rows:
-                rows[0].click()
+                # Find a row that has action nodes (not the first one which may have no actions)
+                target_row = None
+                for row in rows:
+                    text = row.text_content() or ""
+                    if "Magesh" in text or "Lead Qualified" in text or "Roundtrip" in text:
+                        target_row = row
+                        break
+                if not target_row:
+                    target_row = rows[-1]  # fallback to last row
+                target_row.click()
                 page.wait_for_timeout(3000)
                 page.screenshot(path=os.path.join(SCREENSHOT_DIR, "03-builder-loaded.png"))
 
                 nodes = page.query_selector_all(".vue-flow__node")
-                print(f"  Found {len(nodes)} Vue Flow node(s)")
+                edges = page.query_selector_all(".vue-flow__edge")
+                print(f"  Found {len(nodes)} Vue Flow node(s), {len(edges)} edge(s)")
                 if len(nodes) >= 4:
                     ok("Builder loaded with nodes")
                 else:
                     fail("Builder nodes", f"Expected >= 4, got {len(nodes)}")
+                if len(edges) >= 1:
+                    ok("Edges rendered")
+                else:
+                    fail("Edges", f"Expected >= 1, got {len(edges)}")
 
             # ===== STEP 4: Open Send Email config =====
             print("\nStep 4: Open Send Email action config")

@@ -106,6 +106,27 @@ def execute_automation(automation_name, ref_doctype, ref_name):
             return
 
         actions = workflow.get("actions", [])
+
+        # Derive execution order from edges graph (single source of truth).
+        # Walk from trigger → next source → next source ... following edges.
+        edges = workflow.get("edges", [])
+        nodes = workflow.get("nodes", [])
+        if edges and nodes:
+            graph = _build_edge_graph(edges)
+            ordered_ids = _walk_graph(graph, "trigger")
+            if ordered_ids:
+                node_map = {n["id"]: n for n in nodes}
+                edge_actions = []
+                for nid in ordered_ids:
+                    node = node_map.get(nid)
+                    if node and node.get("type") == "action" and node.get("data", {}).get("action_type"):
+                        edge_actions.append({
+                            "type": node["data"]["action_type"],
+                            "config": {k: v for k, v in node["data"].items() if k != "action_type"},
+                        })
+                if edge_actions:
+                    actions = edge_actions
+
         any_failed = False
         step_results = []
 
@@ -186,3 +207,34 @@ def _evaluate_condition(doc, automation):
             pass
 
     return comparator(actual, expected)
+
+
+# ---------------------------------------------------------------------------
+# Edge-graph helpers — derive execution order from visual edges
+# ---------------------------------------------------------------------------
+def _build_edge_graph(edges):
+    """Build adjacency list from edges array: {source_id: [target_id, ...]}."""
+    graph = {}
+    for e in edges:
+        src = e.get("source")
+        tgt = e.get("target")
+        if src and tgt:
+            graph.setdefault(src, []).append(tgt)
+    return graph
+
+
+def _walk_graph(graph, start_id):
+    """Walk graph from start_id following first outgoing edge at each step.
+
+    Returns ordered list of node IDs (including start_id). Stops when a node
+    has no outgoing edges or a cycle is detected.
+    """
+    visited = []
+    current = start_id
+    seen = set()
+    while current and current not in seen:
+        visited.append(current)
+        seen.add(current)
+        targets = graph.get(current, [])
+        current = targets[0] if targets else None
+    return visited
