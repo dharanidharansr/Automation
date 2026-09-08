@@ -92,7 +92,7 @@
             </div>
           </template>
 
-          <Background :gap="15" :size="2" :pattern-color="'var(--gray-600)'" />
+          <Background :gap="15" :size="2.5" :pattern-color="'#666'" />
           <Controls />
         </VueFlow>
       </div>
