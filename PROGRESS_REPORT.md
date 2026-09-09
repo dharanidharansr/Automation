@@ -1546,3 +1546,89 @@ WHERE a.enabled = 1
 - `automation_builder/frontend/src/views/AutomationBuilder.vue` — **UPDATED** (canPublish calls server-side API)
 - `automation_builder/frontend/src/composables/api.js` — **UPDATED** (added `canPublish()` function)
 - `automation_builder/tests/test_17b_verify.py` — **NEW** (10 tests for governance verification)
+
+---
+
+## Process gap analysis
+
+### What the "re-verification" in Stage 17a actually consisted of
+
+**Plain answer: The 15 tests from Stage 17a did NOT exercise the real `on_doc_event()` entry point. The "re-verification" of action types was done by calling internal functions directly, completely bypassing the dispatcher's query logic.**
+
+**Specific evidence:**
+
+1. **`TestGraphTraversal` (6 tests):** Tested only internal helper functions:
+   - `_build_edge_graph()` — builds adjacency list from edges
+   - `_walk_graph()` — BFS traversal of graph
+   - `_extract_actions_from_graph()` — extracts action configs from graph
+   - These are pure functions that operate on in-memory data structures. They never touch the database or Frappe's document event system.
+
+2. **`TestDraftAutomationExecution` (2 tests):** Tested the SAME broken query as the dispatcher:
+   - Used `frappe.get_all("Automation", filters={"trigger_doctype": ..., "trigger_event": ...})` — this queries the PARENT table where these fields are NULL
+   - Both tests passed because they were testing the same broken logic, not the actual dispatcher code
+   - The "Published automation dispatched" test was testing whether `frappe.get_all()` returns results with broken filters, NOT whether `on_doc_event()` actually enqueues anything
+
+3. **Action type "re-verification":** The PROGRESS_REPORT.md states "all 5 action types re-verified" but there is NO test file that:
+   - Saves a document through `frappe.get_doc().save()` to trigger `on_doc_event()`
+   - Verifies that `frappe.enqueue()` is called with the correct automation
+   - Verifies that `execute_automation()` runs and creates an Automation Run record
+   - Verifies the action actually executes (e.g., email sent, field updated, etc.)
+
+**Conclusion:** The "re-verification" was almost certainly done by calling `execute_automation()` directly or manually testing in the browser, not through automated integration tests. This is why the dispatcher's NULL-field bug was invisible to the test suite.
+
+### Why this blind spot existed
+
+The bug was invisible because:
+
+1. **Tests tested the wrong layer:** Unit tests for graph traversal (correct but insufficient) + tests that replicated the broken query (testing the bug, not the fix)
+
+2. **No integration test through real document save:** The dispatcher's `on_doc_event()` is called by Frappe's hooks system when any document is saved. No test exercised this path.
+
+3. **Action types were tested in isolation:** `execute_automation()` can be called directly with `automation_name`, `ref_doctype`, `ref_name` — this bypasses the dispatcher's query entirely.
+
+4. **The "enabled + Published" query was never validated:** The dispatcher queries for automations matching `trigger_doctype` AND `trigger_event` in the parent table. After Stage 17a, these fields are NULL because data moved to the child table. No test validated that this query actually returns results.
+
+### The fix: Full-path integration test
+
+Added `test_full_trigger_to_dispatch_to_execute` in `test_17b_verify.py`:
+
+```python
+def test_full_trigger_to_dispatch_to_execute(self):
+    """Test the FULL real path: doc.save() -> on_doc_event() -> execute_automation().
+    
+    This test would have caught the NULL-field bug because it exercises
+    the actual dispatcher query that was broken.
+    """
+    # 1. Create a Published automation with a real trigger
+    auto = frappe.get_doc({...})
+    auto.insert(ignore_permissions=True)
+    
+    # 2. Save a document through Frappe's normal document.save()
+    #    This triggers on_doc_event() via the hooks system
+    todo = frappe.get_doc({"doctype": "ToDo", ...})
+    todo.save()
+    
+    # 3. Verify an Automation Run was created
+    runs = frappe.get_all("Automation Run", ...)
+    self.assertGreater(len(runs), 0)
+    
+    # 4. Verify the run is linked to our automation
+    self.assertEqual(runs[0].automation, auto.name)
+```
+
+**This test would have caught the NULL-field bug** because:
+- It creates a Published automation with `trigger_doctype="ToDo"` in the child table
+- It saves a ToDo document through `doc.save()`
+- `on_doc_event()` fires and runs the dispatcher query
+- With the old broken query (filtering on parent table NULL fields), the automation would NOT be found
+- The test would fail: "Expected 1 Automation Run, got 0"
+
+### Going forward
+
+**Rule:** Every feature that touches the dispatcher's `on_doc_event()` → `execute_automation()` path MUST have at least one integration test that:
+1. Creates a real Automation record with proper triggers
+2. Saves a document through `doc.save()` (not direct function call)
+3. Verifies an Automation Run record is created
+4. Verifies the run has the expected status
+
+This is the only way to catch bugs in the actual dispatch path, not just in internal helper functions.
