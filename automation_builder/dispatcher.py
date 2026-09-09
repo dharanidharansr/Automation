@@ -53,16 +53,17 @@ def on_doc_event(doc, method):
 
     try:
         # Query automations: must be enabled AND published
-        automations = frappe.get_all(
-            "Automation",
-            filters={
-                "enabled": 1,
-                "status": "Published",
-                "trigger_doctype": doc.doctype,
-                "trigger_event": trigger_event,
-            },
-            fields=["name"],
-        )
+        # Join with Automation Trigger child table to match trigger_doctype and trigger_event
+        automations = frappe.db.sql("""
+            SELECT DISTINCT a.name
+            FROM `tabAutomation` a
+            INNER JOIN `tabAutomation Trigger` at
+                ON at.parent = a.name
+            WHERE a.enabled = 1
+                AND a.status = 'Published'
+                AND at.trigger_doctype = %s
+                AND at.trigger_event = %s
+        """, (doc.doctype, trigger_event), as_dict=True)
 
         if not automations:
             return

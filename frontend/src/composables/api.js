@@ -45,3 +45,7 @@ export function getEmailTemplate(name) {
 export function saveEmailTemplate(data) {
   return call('save_email_template', data)
 }
+
+export function canPublish() {
+  return call('can_publish')
+}

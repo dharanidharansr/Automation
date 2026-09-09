@@ -221,6 +221,12 @@ def get_action_types():
     return get_all_action_types()
 
 
+@frappe.whitelist()
+def can_publish():
+    """Check if current user can publish automations (System Manager only)."""
+    return "System Manager" in frappe.get_roles()
+
+
 # ---------------------------------------------------------------------------
 # Email Template endpoints
 # ---------------------------------------------------------------------------

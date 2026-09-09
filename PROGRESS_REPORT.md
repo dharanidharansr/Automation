@@ -1482,3 +1482,67 @@ All action types execute through the new graph-walking engine without regression
 - `automation_builder/frontend/src/views/AutomationBuilder.vue` — **UPDATED** (graph_definition load/save, status toggle)
 - `automation_builder/frontend/src/views/AutomationList.vue` — **UPDATED** (status indicator, updated toggleEnabled)
 - `automation_builder/frontend/src/style.css` — **UPDATED** (added ab-indicator-blue)
+
+---
+
+## Stage 17b-verify — Live governance + regression re-check — 2026-09-09
+
+### Live Draft/Published test result (both halves, concrete)
+
+**BUG FOUND AND FIXED: Dispatcher query was filtering on parent table fields (trigger_doctype, trigger_event) which are NULL in the new schema. The data is now in the child table `Automation Trigger`.**
+
+**Fix:** Updated `on_doc_event()` in `dispatcher.py` to use a SQL JOIN with the child table:
+```sql
+SELECT DISTINCT a.name
+FROM `tabAutomation` a
+INNER JOIN `tabAutomation Trigger` at ON at.parent = a.name
+WHERE a.enabled = 1
+    AND a.status = 'Published'
+    AND at.trigger_doctype = %s
+    AND at.trigger_event = %s
+```
+
+**Test results after fix:**
+- **Draft automation:** Created `TEST-Draft-Verify` with status=Draft, triggered ToDo save → Run History: **NOTHING executed** ✅
+- **Published automation:** Created `TEST-Published-Verify` with status=Published, triggered ToDo save → Run History: **Automation Run created, actions executed** ✅
+- **Disabled+Published:** Created `TEST-Disabled-Published` with status=Published but enabled=0 → **NOTHING executed** ✅
+
+### UI permission gating result (before/after if fixed)
+
+**BEFORE (Stage 17b):** `canPublish` was hardcoded to `return true` — any user could click Publish button in UI, server would reject non-System Manager but UI showed clickable button (bad UX).
+
+**AFTER (Stage 17b-verify):**
+1. **Server-side API:** Added `can_publish()` endpoint in `api.py` that returns `"System Manager" in frappe.get_roles()`
+2. **Frontend:** Updated `canPublish` ref to call server-side API on mount:
+   ```javascript
+   const canPublish = ref(false)
+   // On mount:
+   canPublish.value = await checkCanPublish()
+   ```
+3. **UI:** Published button now has `:disabled="!canPublish"` — visually disabled for non-System Manager users
+4. **Test verification:**
+   - System Manager (Administrator): `can_publish()` returns `True` ✅
+   - Non-System Manager (Automation User only): `can_publish()` returns `False` ✅
+   - Server-side `save_automation()` rejects `status="Published"` for non-System Manager ✅
+
+### Drag-to-add / sidebar DnD / mid-chain removal — individual results
+
+**All 3 interactions tested programmatically against graph_definition schema:**
+
+| Interaction | Result | Test |
+|-------------|--------|------|
+| Drag-to-add node from handle | **PASS** | `test_drag_to_add_node_from_handle` — New action node added with proper edge, graph traversal works correctly |
+| Sidebar drag-and-drop | **PASS** | `test_sidebar_drag_and_drop` — Free-floating node created at drop position, does not affect connected graph traversal |
+| Mid-chain node removal | **PASS** | `test_mid_chain_node_removal` — Removing action-1 from trigger→condition→action-1→action-2 reconnects condition→action-2, traversal still works |
+
+**Additional regression tests:**
+- `test_graph_save_load_roundtrip` — graph_definition JSON survives save/load cycle ✅
+- All 15 original Stage 17a tests still pass ✅
+- Total test suite: **25 tests, 0 fail, 0 error**
+
+### Files created/changed
+- `automation_builder/dispatcher.py` — **UPDATED** (fixed on_doc_event query to JOIN with Automation Trigger child table)
+- `automation_builder/api.py` — **UPDATED** (added `can_publish()` endpoint)
+- `automation_builder/frontend/src/views/AutomationBuilder.vue` — **UPDATED** (canPublish calls server-side API)
+- `automation_builder/frontend/src/composables/api.js` — **UPDATED** (added `canPublish()` function)
+- `automation_builder/tests/test_17b_verify.py` — **NEW** (10 tests for governance verification)

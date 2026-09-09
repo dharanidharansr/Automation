@@ -195,7 +195,7 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import ConfigPanel from '../components/ConfigPanel.vue'
 import NodePalette from '../components/NodePalette.vue'
-import { getAutomation, saveAutomation, getActionTypes } from '../composables/api.js'
+import { getAutomation, saveAutomation, getActionTypes, canPublish as checkCanPublish } from '../composables/api.js'
 
 import '@vue-flow/controls/dist/style.css'
 
@@ -318,11 +318,7 @@ const triggerDoctype = computed(() => {
   return trigger?.data?.trigger_doctype || ''
 })
 
-const canPublish = computed(() => {
-  // In a real implementation, this would check user roles
-  // For now, allow all users to publish
-  return true
-})
+const canPublish = ref(false)
 
 function publish() {
   if (canPublish.value) {
@@ -723,6 +719,13 @@ onMounted(async () => {
     actionTypes.value = await getActionTypes()
   } catch (e) {
     console.error('Failed to load action types', e)
+  }
+
+  // Check publish permission
+  try {
+    canPublish.value = await checkCanPublish()
+  } catch (e) {
+    console.error('Failed to check publish permission', e)
   }
 
   if (automationId.value) {
