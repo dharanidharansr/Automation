@@ -333,13 +333,13 @@
   height: 100%;
 }
 
-/* === Node Cards === */
+/* === Node Cards — compact sizing === */
 .ab-node {
   padding: 0;
   border-radius: var(--border-radius);
   border: 1px solid var(--border-color);
-  min-width: 240px;
-  max-width: 280px;
+  min-width: 220px;
+  max-width: 260px;
   background: var(--card-bg);
   box-shadow: var(--shadow-sm);
   overflow: visible;
@@ -353,7 +353,7 @@
 }
 
 .ab-node-header {
-  padding: 10px 14px 8px;
+  padding: 8px 12px 6px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -362,7 +362,7 @@
 .ab-node-divider {
   height: 1px;
   background: var(--border-color);
-  margin: 0 14px;
+  margin: 0 12px;
 }
 
 .ab-node-icon {
@@ -413,14 +413,26 @@
   color: var(--blue-500);
 }
 
+.ab-node-trigger {
+  border-left: 3px solid var(--blue-500);
+}
+
 /* Condition: amber tint */
 .ab-node-condition .ab-node-title {
   color: var(--orange-500);
 }
 
+.ab-node-condition {
+  border-left: 3px solid var(--orange-500);
+}
+
 /* Action: green tint */
 .ab-node-action .ab-node-title {
   color: var(--green-600);
+}
+
+.ab-node-action {
+  border-left: 3px solid var(--green-600);
 }
 
 .ab-node-title {
@@ -430,7 +442,7 @@
 }
 
 .ab-node-body {
-  padding: 8px 14px 12px;
+  padding: 6px 12px 8px;
   font-size: var(--text-base);
   color: var(--text-color);
   line-height: 1.4;
@@ -474,22 +486,50 @@
   left: -4px !important;
 }
 
-/* Vue Flow handles */
+/* Vue Flow handles — larger, filled with type accent color */
 .vue-flow__handle {
-  width: 10px !important;
-  height: 10px !important;
+  width: 12px !important;
+  height: 12px !important;
   border-radius: 50% !important;
   background: var(--gray-400) !important;
   border: 2px solid var(--card-bg) !important;
   transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
-  opacity: 0.6;
+  opacity: 0.8;
 }
 
 .vue-flow__handle:hover {
   background: var(--blue-500) !important;
-  transform: scale(1.4);
+  transform: scale(1.3);
   opacity: 1;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+/* Handle colors per node type */
+.ab-node-trigger .vue-flow__handle {
+  background: var(--blue-400) !important;
+  border-color: var(--card-bg) !important;
+}
+
+.ab-node-trigger .vue-flow__handle:hover {
+  background: var(--blue-500) !important;
+}
+
+.ab-node-condition .vue-flow__handle {
+  background: var(--orange-400) !important;
+  border-color: var(--card-bg) !important;
+}
+
+.ab-node-condition .vue-flow__handle:hover {
+  background: var(--orange-500) !important;
+}
+
+.ab-node-action .vue-flow__handle {
+  background: var(--green-500) !important;
+  border-color: var(--card-bg) !important;
+}
+
+.ab-node-action .vue-flow__handle:hover {
+  background: var(--green-600) !important;
 }
 
 .vue-flow__handle-top {
@@ -500,7 +540,7 @@
   bottom: -4px !important;
 }
 
-/* Vue Flow edges */
+/* Vue Flow edges — smooth curves, no sharp bends */
 .vue-flow__edge-path {
   stroke: var(--gray-500);
   stroke-width: 2;
@@ -511,6 +551,11 @@
   stroke-width: 2.5;
 }
 
+/* Smoothstep edge border-radius for rounded bends */
+.vue-flow__edge-path[stroke-linecap="round"] {
+  stroke-linecap: round !important;
+}
+
 /* Connection line while dragging */
 .vue-flow__connection-line {
   stroke: var(--blue-500);
@@ -518,16 +563,25 @@
   stroke-dasharray: 5 5;
 }
 
-/* Vue Flow controls */
+/* Vue Flow controls — dark surface matching canvas theme */
 .vue-flow__controls {
   box-shadow: var(--shadow-sm) !important;
   border-radius: var(--border-radius-sm) !important;
   border: 1px solid var(--border-color) !important;
+  background: var(--card-bg) !important;
+  overflow: hidden;
 }
 
 .vue-flow__controls-button {
   border: none !important;
   border-bottom: 1px solid var(--border-color) !important;
+  background: var(--card-bg) !important;
+  color: var(--text-muted) !important;
+  width: 28px !important;
+  height: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .vue-flow__controls-button:last-child {
@@ -536,9 +590,16 @@
 
 .vue-flow__controls-button:hover {
   background: var(--control-bg) !important;
+  color: var(--text-color) !important;
 }
 
-/* === Add Node Button === */
+.vue-flow__controls-button svg {
+  fill: currentColor !important;
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* === Add Node Button — dark surface matching canvas theme === */
 .ab-add-node-btn {
   position: absolute;
   left: 50%;
@@ -547,7 +608,7 @@
   height: 28px;
   border-radius: 50%;
   background: var(--card-bg);
-  border: 2px solid var(--gray-300);
+  border: 2px solid var(--border-color);
   color: var(--text-muted);
   font-size: 16px;
   font-weight: var(--weight-regular);
@@ -964,7 +1025,8 @@
 }
 
 [data-theme="dark"] .ab-add-node-btn {
-  border-color: var(--gray-600);
+  border-color: var(--border-color);
+  background: var(--card-bg);
 }
 
 [data-theme="dark"] .ab-add-node-menu {
@@ -973,6 +1035,36 @@
 
 [data-theme="dark"] .vue-flow__edge-path {
   stroke: var(--gray-500);
+}
+
+/* Dark mode controls */
+[data-theme="dark"] .vue-flow__controls {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+[data-theme="dark"] .vue-flow__controls-button {
+  background: var(--card-bg) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-color) !important;
+}
+
+[data-theme="dark"] .vue-flow__controls-button:hover {
+  background: var(--control-bg) !important;
+  color: var(--text-color) !important;
+}
+
+/* Dark mode handle colors */
+[data-theme="dark"] .ab-node-trigger .vue-flow__handle {
+  background: var(--blue-400) !important;
+}
+
+[data-theme="dark"] .ab-node-condition .vue-flow__handle {
+  background: var(--orange-400) !important;
+}
+
+[data-theme="dark"] .ab-node-action .vue-flow__handle {
+  background: var(--green-500) !important;
 }
 
 /* Connection validation feedback */

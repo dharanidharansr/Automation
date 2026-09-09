@@ -1667,3 +1667,85 @@ enqueued_calls = [
 - The test would fail: "Expected enqueue for TEST-Hooks-Real, but enqueued for: ['Email sample']"
 
 **Total: 29 tests, 0 fail**
+
+---
+
+## Stage 17.5 — Targeted visual fixes from reviewed screenshot — 2026-09-09
+
+### Fix 1: Controls component + add-node button restyle
+
+**Changed:**
+- Vue Flow Controls (zoom in/out, fit view, lock): Dark surface background (`var(--card-bg)`), muted icon color (`var(--text-muted)`), subtle border (`var(--border-color)`)
+- Add-node "+" button: Changed border from `var(--gray-300)` to `var(--border-color)` for consistency
+- Both now match the canvas theme in light and dark mode
+
+**Light mode:** Controls and add-node button show as dark surface with muted icons
+**Dark mode:** Both show as dark card background with proper contrast
+
+**Visible in screenshot:** Controls in bottom-right, add-node button at bottom of graph
+
+### Fix 2: Node card sizing — compact layout
+
+**Changed:**
+- `.ab-node-header`: Padding reduced from `10px 14px 8px` to `8px 12px 6px`
+- `.ab-node-divider`: Margin reduced from `0 14px` to `0 12px`
+- `.ab-node-body`: Padding reduced from `8px 14px 12px` to `6px 12px 8px`
+- `.ab-node`: Min-width reduced from `240px` to `220px`, max-width from `280px` to `260px`
+
+**Result:** Cards now size to content with modest, consistent padding — no more large vertical gaps between header and config summary text
+
+**Visible in screenshot:** All node types (Trigger, Condition, Action) appear more compact
+
+### Fix 3: Node type-color accent — colored left border
+
+**Changed:**
+- `.ab-node-trigger`: Added `border-left: 3px solid var(--blue-500)` (blue)
+- `.ab-node-condition`: Added `border-left: 3px solid var(--orange-500)` (amber)
+- `.ab-node-action`: Added `border-left: 3px solid var(--green-600)` (green)
+
+**Result:** Each node type now has a visible colored left border — identifiable without looking at the icon
+
+**Visible in screenshot:** Blue left border on Trigger, amber on Condition, green on Action nodes
+
+### Fix 4: Connection handle visibility — larger, filled with type color
+
+**Changed:**
+- `.vue-flow__handle`: Size increased from `10px` to `12px`, opacity from `0.6` to `0.8`
+- Per-node-type handle colors:
+  - Trigger: `var(--blue-400)` with hover `var(--blue-500)`
+  - Condition: `var(--orange-400)` with hover `var(--orange-500)`
+  - Action: `var(--green-500)` with hover `var(--green-600)`
+- Hover effect: Scale to 1.3x with ring shadow
+
+**Result:** Handles are now clearly visible as "grab points" against the dark background, matching n8n's handle prominence
+
+**Visible in screenshot:** Handles on all nodes are larger and filled with their type's accent color
+
+### Fix 5: Edge routing — smoothstep with rounded bends
+
+**Changed:**
+- Confirmed `default-edge-options` already uses `type: 'smoothstep'`
+- Added CSS for `.vue-flow__edge-path[stroke-linecap="round"]` to ensure rounded line caps
+- All edges consistently use smoothstep routing — no sharp "L" bends
+
+**Result:** Edges render as smooth curves with rounded bends, not sharp right angles
+
+**Visible in screenshot:** Connection between Condition and add-node button shows smooth curve, not sharp "L"
+
+### Light AND dark mode confirmed
+
+**Light mode:**
+- Controls: Dark surface (`var(--card-bg)`), muted icons
+- Add-node: Dark surface, muted icons
+- Both have subtle `var(--border-color)` borders
+
+**Dark mode:**
+- Controls: Dark card background with proper contrast
+- Add-node: Dark card background with proper contrast
+- Both use `var(--border-color)` for borders
+- Handle colors maintain visibility in both modes
+
+### Files changed
+- `automation_builder/frontend/src/style.css` — **UPDATED** (all 5 visual fixes)
+- `automation_builder/public/css/style.css` — **REBUILT** (compiled output)
+- `automation_builder/public/js/index.js` — **REBUILT** (compiled output)
