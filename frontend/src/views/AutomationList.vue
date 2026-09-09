@@ -22,7 +22,10 @@
           </div>
           <div class="ab-list-row-meta">{{ auto.trigger_doctype }} → {{ auto.trigger_event }}</div>
           <div>
-            <span class="ab-indicator" :class="auto.enabled ? 'ab-indicator-green' : 'ab-indicator-gray'">
+            <span class="ab-indicator" :class="auto.status === 'Published' ? 'ab-indicator-green' : 'ab-indicator-gray'">
+              {{ auto.status || 'Draft' }}
+            </span>
+            <span class="ab-indicator" :class="auto.enabled ? 'ab-indicator-blue' : 'ab-indicator-gray'" style="margin-left: 4px;">
               {{ auto.enabled ? 'Enabled' : 'Disabled' }}
             </span>
           </div>
@@ -95,7 +98,8 @@ async function toggleEnabled(auto) {
       condition_operator: auto.condition_operator,
       condition_value: auto.condition_value,
       enabled: auto.enabled ? 0 : 1,
-      workflow_json: auto.workflow_json,
+      status: auto.status,
+      graph_definition: auto.graph_definition,
     })
     auto.enabled = auto.enabled ? 0 : 1
     frappe.show_alert({

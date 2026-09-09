@@ -87,8 +87,9 @@ def save_automation(
 
         # Handle status with permission check
         if status is not None:
-            if status == "Published" and not frappe.has_permission("Automation", "write"):
-                frappe.throw(_("Insufficient permissions to publish automation"))
+            # Only System Manager can publish automations
+            if status == "Published" and "System Manager" not in frappe.get_roles():
+                frappe.throw(_("Only System Manager can publish automations"))
             doc.status = status
 
         doc.enabled = int(enabled)

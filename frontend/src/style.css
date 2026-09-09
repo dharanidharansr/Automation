@@ -186,6 +186,15 @@
   background: var(--text-on-gray);
 }
 
+.ab-indicator-blue {
+  background: var(--bg-blue);
+  color: var(--text-on-blue);
+}
+
+.ab-indicator-blue::before {
+  background: var(--text-on-blue);
+}
+
 /* Row actions - hover reveal */
 .ab-row-actions {
   display: flex;

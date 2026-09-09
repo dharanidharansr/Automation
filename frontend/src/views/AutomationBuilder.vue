@@ -11,6 +11,23 @@
           <input type="checkbox" v-model="enabled" />
           Enabled
         </label>
+        <div class="ab-status-toggle" :class="{ 'ab-status-published': status === 'Published' }">
+          <button 
+            class="ab-status-btn" 
+            :class="{ 'ab-status-btn-active': status === 'Draft' }"
+            @click="status = 'Draft'"
+          >
+            Draft
+          </button>
+          <button 
+            class="ab-status-btn" 
+            :class="{ 'ab-status-btn-active': status === 'Published' }"
+            @click="publish"
+            :disabled="!canPublish"
+          >
+            Published
+          </button>
+        </div>
         <div class="ab-topbar-actions">
           <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="showRuns" v-if="automationId">Run History</button>
           <button class="ab-btn ab-btn-primary ab-btn-sm" @click="save" :disabled="saving">
@@ -192,6 +209,7 @@ const router = useRouter()
 const automationId = ref(route.params.name || null)
 const automationName = ref('')
 const enabled = ref(true)
+const status = ref('Draft')
 const saving = ref(false)
 const showAddMenu = ref(null)
 const actionTypes = ref([])
@@ -299,6 +317,18 @@ const triggerDoctype = computed(() => {
   const trigger = nodes.value.find(n => n.id === 'trigger')
   return trigger?.data?.trigger_doctype || ''
 })
+
+const canPublish = computed(() => {
+  // In a real implementation, this would check user roles
+  // For now, allow all users to publish
+  return true
+})
+
+function publish() {
+  if (canPublish.value) {
+    status.value = 'Published'
+  }
+}
 
 // Which source handles already have an outgoing edge (linear-only enforcement)
 const connectedSourceHandles = computed(() => {
@@ -619,23 +649,32 @@ async function save() {
     const trigger = nodes.value.find(n => n.id === 'trigger')
     const condition = nodes.value.find(n => n.id === 'condition')
 
-    const workflowJson = JSON.stringify({
+    const graphDefinition = JSON.stringify({
       nodes: nodes.value
         .filter(n => n.id !== 'add-trigger')
         .map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
       edges: edges.value.filter(e => e.source !== 'add-trigger' && e.target !== 'add-trigger'),
     })
 
+    // Build triggers array from trigger node data
+    const triggers = []
+    if (trigger?.data?.trigger_doctype) {
+      triggers.push({
+        trigger_doctype: trigger.data.trigger_doctype,
+        trigger_event: trigger.data.trigger_event || 'On Update',
+        condition_field: condition?.data?.condition_field || '',
+        condition_operator: condition?.data?.condition_operator || '=',
+        condition_value: condition?.data?.condition_value || '',
+      })
+    }
+
     const result = await saveAutomation({
       name: automationId.value,
       automation_name: automationName.value,
-      trigger_doctype: trigger?.data?.trigger_doctype,
-      trigger_event: trigger?.data?.trigger_event,
-      condition_field: condition?.data?.condition_field,
-      condition_operator: condition?.data?.condition_operator,
-      condition_value: condition?.data?.condition_value,
+      status: status.value,
       enabled: enabled.value ? 1 : 0,
-      workflow_json: workflowJson,
+      graph_definition: graphDefinition,
+      triggers: triggers,
     })
 
     automationId.value = result.name
@@ -691,15 +730,16 @@ onMounted(async () => {
       const auto = await getAutomation(automationId.value)
       automationName.value = auto.automation_name
       enabled.value = !!auto.enabled
+      status.value = auto.status || 'Draft'
 
-      if (auto.workflow_json) {
+      if (auto.graph_definition) {
         try {
-          const wf = JSON.parse(auto.workflow_json)
-          if (wf.nodes && wf.nodes.length) {
-            nodes.value = wf.nodes.map(n => ({ ...n }))
+          const graph = JSON.parse(auto.graph_definition)
+          if (graph.nodes && graph.nodes.length) {
+            nodes.value = graph.nodes.map(n => ({ ...n }))
           }
-          if (wf.edges && wf.edges.length) {
-            edges.value = wf.edges.map(e => ({
+          if (graph.edges && graph.edges.length) {
+            edges.value = graph.edges.map(e => ({
               ...e,
               sourceHandle: e.sourceHandle || null,
               targetHandle: e.targetHandle || null,
@@ -725,19 +765,21 @@ onMounted(async () => {
             markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
           })
         } catch (e) {
-          console.error('Failed to parse workflow_json', e)
+          console.error('Failed to parse graph_definition', e)
         }
-      } else {
+      } else if (auto.triggers && auto.triggers.length) {
+        // Fallback: populate from triggers table
         const trigger = nodes.value.find(n => n.id === 'trigger')
         const condition = nodes.value.find(n => n.id === 'condition')
+        const firstTrigger = auto.triggers[0]
         if (trigger) {
-          trigger.data.trigger_doctype = auto.trigger_doctype || ''
-          trigger.data.trigger_event = auto.trigger_event || 'On Update'
+          trigger.data.trigger_doctype = firstTrigger.trigger_doctype || ''
+          trigger.data.trigger_event = firstTrigger.trigger_event || 'On Update'
         }
         if (condition) {
-          condition.data.condition_field = auto.condition_field || ''
-          condition.data.condition_operator = auto.condition_operator || '='
-          condition.data.condition_value = auto.condition_value || ''
+          condition.data.condition_field = firstTrigger.condition_field || ''
+          condition.data.condition_operator = firstTrigger.condition_operator || '='
+          condition.data.condition_value = firstTrigger.condition_value || ''
         }
       }
     } catch (e) {
@@ -764,5 +806,45 @@ onBeforeUnmount(() => {
   width: 1px;
   height: 20px;
   background: var(--gray-400);
+}
+
+.ab-status-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  background: var(--gray-100);
+  border-radius: 6px;
+}
+
+.ab-status-btn {
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--gray-600);
+  transition: all 0.2s;
+}
+
+.ab-status-btn:hover:not(:disabled) {
+  background: var(--gray-200);
+}
+
+.ab-status-btn-active {
+  background: white;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  color: var(--gray-900);
+}
+
+.ab-status-published .ab-status-btn-active {
+  background: var(--green-500);
+  color: white;
+}
+
+.ab-status-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

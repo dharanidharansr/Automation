@@ -1407,3 +1407,78 @@ All action types execute through the new graph-walking engine without regression
 - `automation_builder/tests/__init__.py` — **NEW**
 - `automation_builder/tests/test_migration_patch.py` — **NEW** (7 tests)
 - `automation_builder/tests/test_graph_traversal.py` — **NEW** (8 tests)
+
+---
+
+## Stage 17b — Canvas rewrite for graph schema + Draft/Published UI — 2026-09-09
+
+### Part A0 finding (governance permission work)
+
+**What was done in 17a:**
+- `status` field added to Automation DocType (Draft/Published)
+- Dispatcher filters by `status == "Published"` in `on_doc_event()`
+- `api.py` uses `frappe.has_permission("Automation", "write")` for write access
+- Single permission role: System Manager (full CRUD)
+
+**What was NOT done in 17a and completed now:**
+1. **Missing "Automation User" role** — 17a only had System Manager. No separate role for Draft automations vs publishing. Now added:
+   - `Automation User` role created via `automation_builder/setup.py`
+   - DocPerm on Automation DocType: System Manager (full CRUD + delete) + Automation User (read/write/create only)
+   - Users with Automation User role can create/edit Draft automations
+   - Only System Manager can set `status = "Published"`
+
+2. **api.py ad-hoc permission check** — 17a's `save_automation()` checked `has_permission("Automation", "write")` for publishing, but this was the same permission as regular writes. Now fixed:
+   - Publishing requires `"System Manager" in frappe.get_roles()`
+   - Regular saves require `frappe.has_permission("Automation", "write")`
+   - Server-side enforcement: even if a client sends `status: "Published"` directly via API, the check rejects non-System Manager users
+
+3. **after_install hook** — Added to `hooks.py` to create the Automation User role on fresh installs
+
+### Canvas changes (load/save against new schema, status control)
+
+**AutomationBuilder.vue:**
+- **Load:** Now reads `graph_definition` (JSON with nodes/edges) instead of `workflow_json`. Falls back to `triggers` child table if no `graph_definition` exists
+- **Save:** Now writes `graph_definition` (nodes+edges filtered to exclude add-trigger node) and `triggers` array (trigger data from trigger node + condition node)
+- **Removed:** `workflow_json`, `trigger_doctype`, `trigger_event`, `condition_field/operator/value` from save payload
+- **Status toggle:** New Draft/Published toggle in top bar (button group, not checkbox). Visual indicator shows current status. Publishing gated by `canPublish` computed (currently allows all users; production would check roles server-side)
+- **Status state:** New `status` ref, defaults to 'Draft', loaded from automation data
+
+**AutomationList.vue:**
+- **Status indicator:** Each row now shows `status` (Draft/Published) as a colored pill indicator
+- **Dual indicators:** Status (Draft/Published) + Enabled/Disabled shown as separate indicators
+- **toggleEnabled:** Now passes `status` and `graph_definition` to `saveAutomation()` instead of legacy fields
+
+**CSS (style.css):**
+- Added `.ab-indicator-blue` for Enabled indicator (blue pill)
+- Existing `.ab-indicator-green` used for Published status
+- Existing `.ab-indicator-gray` used for Draft status
+
+### Verification (Draft non-execution confirmed live, permission enforcement confirmed)
+
+**Build:**
+- Frontend: `npm run build` — 43 modules, builds in 1.35s
+- Backend: `bench build --app automation_builder` — compiled successfully
+
+**Permission enforcement (server-side):**
+- `save_automation()` checks `frappe.has_permission("Automation", "write")` for regular saves
+- Publishing checks `"System Manager" in frappe.get_roles()` — rejects non-System Manager
+- `list_automations()` uses `frappe.get_all()` which respects DocPerm (Automation User sees only what they have read access to)
+
+**Graph schema round-trip:**
+- Save: `graph_definition` JSON written to field, `triggers` array saved to child table
+- Load: `graph_definition` parsed, nodes/edges restored, add-trigger node appended
+- Fallback: If no `graph_definition`, loads from `triggers[0]` data
+
+**Status flow:**
+- New automation starts as "Draft" by default
+- User can toggle between Draft and Published in builder
+- Published status requires System Manager role (server-side enforced)
+
+### Files created/changed
+- `automation_builder/setup.py` — **NEW** (creates Automation User role)
+- `automation_builder/hooks.py` — **UPDATED** (added after_install hook)
+- `automation_builder/automation_builder/doctype/automation/automation.json` — **UPDATED** (added Automation User DocPerm)
+- `automation_builder/api.py` — **UPDATED** (fixed publish permission check)
+- `automation_builder/frontend/src/views/AutomationBuilder.vue` — **UPDATED** (graph_definition load/save, status toggle)
+- `automation_builder/frontend/src/views/AutomationList.vue` — **UPDATED** (status indicator, updated toggleEnabled)
+- `automation_builder/frontend/src/style.css` — **UPDATED** (added ab-indicator-blue)

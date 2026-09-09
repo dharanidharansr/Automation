@@ -5,6 +5,9 @@ app_description = "n8n for frappe"
 app_email = "aruvi@gmail.com"
 app_license = "mit"
 
+# Setup hooks
+after_install = "automation_builder.setup.create_automation_roles"
+
 # Includes in <head>
 # ------------------
 # CSS loaded dynamically in spa_builder.js with cache busting
