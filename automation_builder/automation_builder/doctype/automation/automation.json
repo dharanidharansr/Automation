@@ -7,17 +7,21 @@
  "engine": "InnoDB",
  "field_order": [
   "automation_name",
+  "cb_status",
+  "status",
+  "enabled",
   "trigger_section",
+  "triggers",
+  "graph_section",
+  "graph_definition",
+  "legacy_fields_section",
   "trigger_doctype",
   "trigger_event",
-  "condition_section",
   "condition_field",
   "condition_operator",
   "condition_value",
   "workflow_section",
   "workflow_json",
-  "cb_enabled",
-  "enabled",
   "description_section",
   "description"
  ],
@@ -31,70 +35,97 @@
    "unique": 1
   },
   {
-   "fieldname": "trigger_section",
-   "fieldtype": "Section Break",
-   "label": "Trigger"
-  },
-  {
-   "fieldname": "trigger_doctype",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Trigger DocType",
-   "options": "DocType",
-   "reqd": 1
-  },
-  {
-   "fieldname": "trigger_event",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Trigger Event",
-   "options": "After Insert\nOn Update\nOn Submit\nOn Cancel",
-   "reqd": 1
-  },
-  {
-   "fieldname": "condition_section",
-   "fieldtype": "Section Break",
-   "label": "Condition"
-  },
-  {
-   "fieldname": "condition_field",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Condition Field"
-  },
-  {
-   "fieldname": "condition_operator",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Condition Operator",
-   "options": "=\n!=\n>\n<\n>=\n<="
-  },
-  {
-   "fieldname": "condition_value",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Condition Value"
-  },
-  {
-   "fieldname": "workflow_section",
-   "fieldtype": "Section Break",
-   "label": "Workflow JSON"
-  },
-  {
-   "fieldname": "workflow_json",
-   "fieldtype": "Code",
-   "label": "Workflow JSON",
-   "options": "JSON"
-  },
-  {
-   "fieldname": "cb_enabled",
+   "fieldname": "cb_status",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "default": "Draft",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPublished",
+   "reqd": 1
   },
   {
    "fieldname": "enabled",
    "default": "1",
    "fieldtype": "Check",
    "label": "Enabled"
+  },
+  {
+   "fieldname": "trigger_section",
+   "fieldtype": "Section Break",
+   "label": "Triggers"
+  },
+  {
+   "fieldname": "triggers",
+   "fieldtype": "Table",
+   "label": "Triggers",
+   "options": "Automation Trigger"
+  },
+  {
+   "fieldname": "graph_section",
+   "fieldtype": "Section Break",
+   "label": "Graph Definition"
+  },
+  {
+   "fieldname": "graph_definition",
+   "fieldtype": "Code",
+   "label": "Graph Definition",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "legacy_fields_section",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Legacy Fields (Deprecated - migrated to triggers table)"
+  },
+  {
+   "fieldname": "trigger_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Trigger DocType (Legacy)",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "trigger_event",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Trigger Event (Legacy)",
+   "options": "After Insert\nOn Update\nOn Submit\nOn Cancel"
+  },
+  {
+   "fieldname": "condition_field",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Condition Field (Legacy)"
+  },
+  {
+   "fieldname": "condition_operator",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Condition Operator (Legacy)",
+   "options": "=\n!=\n>\n<\n>=\n<="
+  },
+  {
+   "fieldname": "condition_value",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Condition Value (Legacy)"
+  },
+  {
+   "fieldname": "workflow_section",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Workflow JSON (Deprecated - migrated to graph_definition)"
+  },
+  {
+   "fieldname": "workflow_json",
+   "fieldtype": "Code",
+   "hidden": 1,
+   "label": "Workflow JSON (Legacy)",
+   "options": "JSON"
   },
   {
    "fieldname": "description_section",
@@ -110,7 +141,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-07 00:00:00.000000",
+ "modified": "2026-09-09 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Automation Builder",
  "name": "Automation",

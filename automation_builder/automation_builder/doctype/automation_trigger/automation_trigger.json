@@ -1,0 +1,38 @@
+{
+  "name": "Automation Trigger",
+  "module": "Automation Builder",
+  "doctype": "DocType",
+  "istable": 1,
+  "fields": [
+    {
+      "fieldname": "trigger_doctype",
+      "fieldtype": "Link",
+      "label": "Trigger DocType",
+      "options": "DocType",
+      "reqd": 1
+    },
+    {
+      "fieldname": "trigger_event",
+      "fieldtype": "Select",
+      "label": "Trigger Event",
+      "options": "After Insert\nOn Update\nOn Submit\nOn Cancel",
+      "reqd": 1
+    },
+    {
+      "fieldname": "condition_field",
+      "fieldtype": "Data",
+      "label": "Condition Field"
+    },
+    {
+      "fieldname": "condition_operator",
+      "fieldtype": "Select",
+      "label": "Condition Operator",
+      "options": "=\n!=\n>\n<\n>=\n<="
+    },
+    {
+      "fieldname": "condition_value",
+      "fieldtype": "Data",
+      "label": "Condition Value"
+    }
+  ]
+}

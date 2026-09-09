@@ -2,8 +2,8 @@
 
 Uses a wildcard ``*`` doc_events hook so a single handler fires for every
 DocType.  The handler is intentionally cheap: it does an indexed query for
-enabled automations matching the doctype+event, and returns immediately if
-there are none.
+enabled + published automations matching the doctype+event, and returns
+immediately if there are none.
 """
 
 import json
@@ -42,27 +42,34 @@ def on_doc_event(doc, method):
     if not trigger_event:
         return
 
+    # Skip during migration to prevent recursion
+    if frappe.flags.get("in_migrate"):
+        return
+
     # Re-entry guard: skip if this doc is being saved by an automation action
     guard_key = f"_automation_running_{doc.doctype}_{doc.name}"
     if frappe.flags.get(guard_key):
         return
 
     try:
+        # Query automations: must be enabled AND published
         automations = frappe.get_all(
             "Automation",
             filters={
                 "enabled": 1,
+                "status": "Published",
                 "trigger_doctype": doc.doctype,
                 "trigger_event": trigger_event,
             },
-            fields=["name", "condition_field", "condition_operator", "condition_value"],
+            fields=["name"],
         )
 
         if not automations:
             return
 
+        # For each matching automation, check conditions from triggers table
         for auto in automations:
-            if _evaluate_condition(doc, auto):
+            if _evaluate_trigger_conditions(auto.name, doc):
                 frappe.enqueue(
                     "automation_builder.dispatcher.execute_automation",
                     queue="short",
@@ -72,6 +79,52 @@ def on_doc_event(doc, method):
                 )
     except Exception:
         frappe.log_error(title="Automation Builder dispatch error")
+
+
+def _evaluate_trigger_conditions(automation_name, doc):
+    """Evaluate all trigger conditions for an automation against the document.
+
+    An automation can have multiple triggers (Phase 2 prep). For now, typically
+    only one trigger row exists. Returns True if ANY trigger's conditions match.
+    """
+    triggers = frappe.get_all(
+        "Automation Trigger",
+        filters={"parent": automation_name},
+        fields=["condition_field", "condition_operator", "condition_value"],
+    )
+
+    if not triggers:
+        return True
+
+    for trigger in triggers:
+        if _evaluate_condition(doc, trigger):
+            return True
+
+    return False
+
+
+def _evaluate_condition(doc, trigger_row):
+    """Evaluate a single condition against the document."""
+    field = trigger_row.condition_field
+    operator = trigger_row.condition_operator
+    expected = trigger_row.condition_value
+
+    if not field or not operator:
+        return True
+
+    actual = doc.get(field)
+    comparator = OPERATORS.get(operator)
+    if comparator is None:
+        return False
+
+    if operator in (">", "<", ">=", "<="):
+        try:
+            actual = float(actual)
+            expected = float(expected)
+        except (TypeError, ValueError):
+            pass
+
+    return comparator(actual, expected)
 
 
 # ---------------------------------------------------------------------------
@@ -95,44 +148,26 @@ def execute_automation(automation_name, ref_doctype, ref_name):
             }
         )
 
-        workflow_json = automation.workflow_json
-        if not workflow_json:
+        # Use graph_definition (new format), fall back to workflow_json (legacy)
+        graph_json = automation.graph_definition or automation.legacy_workflow_json
+        if not graph_json:
             run.status = "Failed"
-            run.error = "No workflow_json found on automation"
+            run.error = "No graph_definition found on automation"
             run.ended_at = frappe.utils.now_datetime()
             run.insert(ignore_permissions=True)
             return
 
         try:
-            workflow = json.loads(workflow_json)
+            graph = json.loads(graph_json)
         except (json.JSONDecodeError, TypeError):
             run.status = "Failed"
-            run.error = "Invalid workflow_json"
+            run.error = "Invalid graph_definition JSON"
             run.ended_at = frappe.utils.now_datetime()
             run.insert(ignore_permissions=True)
             return
 
-        actions = workflow.get("actions", [])
-
-        # Derive execution order from edges graph (single source of truth).
-        # Walk from trigger → next source → next source ... following edges.
-        edges = workflow.get("edges", [])
-        nodes = workflow.get("nodes", [])
-        if edges and nodes:
-            graph = _build_edge_graph(edges)
-            ordered_ids = _walk_graph(graph, "trigger")
-            if ordered_ids:
-                node_map = {n["id"]: n for n in nodes}
-                edge_actions = []
-                for nid in ordered_ids:
-                    node = node_map.get(nid)
-                    if node and node.get("type") == "action" and node.get("data", {}).get("action_type"):
-                        edge_actions.append({
-                            "type": node["data"]["action_type"],
-                            "config": {k: v for k, v in node["data"].items() if k != "action_type"},
-                        })
-                if edge_actions:
-                    actions = edge_actions
+        # Extract actions from graph nodes, ordered by graph traversal
+        actions = _extract_actions_from_graph(graph)
 
         any_failed = False
         step_results = []
@@ -174,6 +209,40 @@ def execute_automation(automation_name, ref_doctype, ref_name):
         frappe.flags[guard_key] = False
 
 
+def _extract_actions_from_graph(graph):
+    """Extract action configurations from graph, in traversal order.
+
+    Walks the graph from the trigger node following edges to determine
+    execution order. This is generic — handles branching for future IF/Switch.
+    """
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    if not nodes:
+        return []
+
+    # Build node map for quick lookup
+    node_map = {n["id"]: n for n in nodes}
+
+    # Build adjacency list from edges
+    graph_adj = _build_edge_graph(edges)
+
+    # Walk graph starting from trigger node
+    ordered_ids = _walk_graph(graph_adj, "trigger")
+
+    # Extract action nodes in traversal order
+    actions = []
+    for nid in ordered_ids:
+        node = node_map.get(nid)
+        if node and node.get("type") == "action" and node.get("data", {}).get("action_type"):
+            actions.append({
+                "type": node["data"]["action_type"],
+                "config": {k: v for k, v in node["data"].items() if k != "action_type"},
+            })
+
+    return actions
+
+
 def _execute_action(action_type, config, context):
     """Look up *action_type* in the registry and call its execute()."""
     handler = get_action_type(action_type)
@@ -192,30 +261,6 @@ def _execute_action(action_type, config, context):
             "status": "Failed",
             "error": str(e),
         }
-
-
-def _evaluate_condition(doc, automation):
-    """Evaluate the automation's condition against the document."""
-    field = automation.condition_field
-    operator = automation.condition_operator
-    expected = automation.condition_value
-
-    if not field or not operator:
-        return True
-
-    actual = doc.get(field)
-    comparator = OPERATORS.get(operator)
-    if comparator is None:
-        return False
-
-    if operator in (">", "<", ">=", "<="):
-        try:
-            actual = float(actual)
-            expected = float(expected)
-        except (TypeError, ValueError):
-            pass
-
-    return comparator(actual, expected)
 
 
 # ---------------------------------------------------------------------------

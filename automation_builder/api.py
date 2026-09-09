@@ -28,33 +28,54 @@ def get_doctype_fields(doctype):
 
 @frappe.whitelist()
 def get_automation(name):
-    """Return full Automation doc including workflow_json."""
+    """Return full Automation doc including graph_definition and triggers."""
     doc = frappe.get_doc("Automation", name)
+
+    # Get triggers from child table
+    triggers = []
+    for trigger in doc.triggers:
+        triggers.append({
+            "trigger_doctype": trigger.trigger_doctype,
+            "trigger_event": trigger.trigger_event,
+            "condition_field": trigger.condition_field,
+            "condition_operator": trigger.condition_operator,
+            "condition_value": trigger.condition_value,
+        })
+
     return {
         "name": doc.name,
         "automation_name": doc.automation_name,
-        "trigger_doctype": doc.trigger_doctype,
-        "trigger_event": doc.trigger_event,
-        "condition_field": doc.condition_field,
-        "condition_operator": doc.condition_operator,
-        "condition_value": doc.condition_value,
+        "status": doc.status,
         "enabled": doc.enabled,
-        "workflow_json": doc.workflow_json,
+        "graph_definition": doc.graph_definition,
+        "triggers": triggers,
         "description": doc.description,
+        # Legacy fields for backward compatibility
+        "trigger_doctype": doc.trigger_doctype or (triggers[0]["trigger_doctype"] if triggers else None),
+        "trigger_event": doc.trigger_event or (triggers[0]["trigger_event"] if triggers else None),
+        "condition_field": doc.condition_field or (triggers[0]["condition_field"] if triggers else None),
+        "condition_operator": doc.condition_operator or (triggers[0]["condition_operator"] if triggers else None),
+        "condition_value": doc.condition_value or (triggers[0]["condition_value"] if triggers else None),
+        "workflow_json": doc.workflow_json or doc.graph_definition,
     }
 
 
 @frappe.whitelist()
 def save_automation(
     name=None,
-    workflow_json=None,
+    graph_definition=None,
     automation_name=None,
+    status=None,
+    enabled=1,
+    triggers=None,
+    description=None,
+    # Legacy fields for backward compatibility
+    workflow_json=None,
     trigger_doctype=None,
     trigger_event=None,
     condition_field=None,
     condition_operator=None,
     condition_value=None,
-    enabled=1,
 ):
     """Create or update an Automation record."""
     if not frappe.has_permission("Automation", "write"):
@@ -63,26 +84,71 @@ def save_automation(
     if name and frappe.db.exists("Automation", name):
         doc = frappe.get_doc("Automation", name)
         doc.automation_name = automation_name or doc.automation_name
-        doc.trigger_doctype = trigger_doctype or doc.trigger_doctype
-        doc.trigger_event = trigger_event or doc.trigger_event
-        doc.condition_field = condition_field if condition_field is not None else doc.condition_field
-        doc.condition_operator = condition_operator if condition_operator is not None else doc.condition_operator
-        doc.condition_value = condition_value if condition_value is not None else doc.condition_value
+
+        # Handle status with permission check
+        if status is not None:
+            if status == "Published" and not frappe.has_permission("Automation", "write"):
+                frappe.throw(_("Insufficient permissions to publish automation"))
+            doc.status = status
+
         doc.enabled = int(enabled)
+        doc.description = description if description is not None else doc.description
+
+        # Handle graph_definition (new format)
+        if graph_definition is not None:
+            doc.graph_definition = graph_definition
+
+        # Handle triggers table (new format)
+        if triggers is not None:
+            doc.triggers = []
+            for trigger_data in triggers:
+                doc.append("triggers", trigger_data)
+
+        # Handle legacy fields for backward compatibility
         if workflow_json is not None:
             doc.workflow_json = workflow_json
+        if trigger_doctype is not None:
+            doc.trigger_doctype = trigger_doctype
+        if trigger_event is not None:
+            doc.trigger_event = trigger_event
+        if condition_field is not None:
+            doc.condition_field = condition_field
+        if condition_operator is not None:
+            doc.condition_operator = condition_operator
+        if condition_value is not None:
+            doc.condition_value = condition_value
+
         doc.save(ignore_permissions=True)
     else:
         doc = frappe.new_doc("Automation")
         doc.automation_name = automation_name
-        doc.trigger_doctype = trigger_doctype
-        doc.trigger_event = trigger_event
-        doc.condition_field = condition_field
-        doc.condition_operator = condition_operator
-        doc.condition_value = condition_value
+        doc.status = status or "Draft"
         doc.enabled = int(enabled)
+        doc.description = description
+
+        # Handle graph_definition (new format)
+        if graph_definition is not None:
+            doc.graph_definition = graph_definition
+
+        # Handle triggers table (new format)
+        if triggers is not None:
+            for trigger_data in triggers:
+                doc.append("triggers", trigger_data)
+
+        # Handle legacy fields for backward compatibility
         if workflow_json is not None:
             doc.workflow_json = workflow_json
+        if trigger_doctype is not None:
+            doc.trigger_doctype = trigger_doctype
+        if trigger_event is not None:
+            doc.trigger_event = trigger_event
+        if condition_field is not None:
+            doc.condition_field = condition_field
+        if condition_operator is not None:
+            doc.condition_operator = condition_operator
+        if condition_value is not None:
+            doc.condition_value = condition_value
+
         doc.insert(ignore_permissions=True)
 
     frappe.db.commit()
@@ -97,8 +163,7 @@ def list_automations():
         fields=[
             "name",
             "automation_name",
-            "trigger_doctype",
-            "trigger_event",
+            "status",
             "enabled",
             "modified",
         ],
