@@ -551,3 +551,152 @@ class TestFullPathIntegration(IntegrationTestCase):
         from automation_builder.dispatcher import _evaluate_trigger_conditions
         result = _evaluate_trigger_conditions(auto.name, todo)
         self.assertFalse(result, "Condition should NOT match when status=Open but expected Closed")
+
+
+class TestRealHooksIntegration(IntegrationTestCase):
+    """Test the REAL hooks system — document.save() through Frappe's normal path.
+    
+    This is the one test that direct function calls can't catch:
+    hook wiring/caching issues that only manifest when Frappe's document
+    framework calls the registered hook function.
+    
+    The test creates a Published automation, saves a document through
+    frappe's normal document.save(), and verifies the automation run
+    actually fires end-to-end via the real hooks.py registration.
+    """
+
+    def setUp(self):
+        """Clean up test data."""
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-Hooks%'")
+        frappe.db.sql("DELETE FROM `tabAutomation` WHERE name LIKE 'TEST-Hooks%'")
+        frappe.db.sql("DELETE FROM `tabAutomation Run` WHERE automation LIKE 'TEST-Hooks%'")
+        frappe.db.commit()
+
+    def tearDown(self):
+        """Clean up test data."""
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-Hooks%'")
+        frappe.db.sql("DELETE FROM `tabAutomation` WHERE name LIKE 'TEST-Hooks%'")
+        frappe.db.sql("DELETE FROM `tabAutomation Run` WHERE automation LIKE 'TEST-Hooks%'")
+        frappe.db.commit()
+
+    def test_real_hooks_fires_end_to_end(self):
+        """CRITICAL: Test through Frappe's real hooks system.
+        
+        This test:
+        1. Creates a Published automation with trigger_doctype="ToDo"
+        2. Saves a ToDo through frappe's normal document.save()
+        3. Frappe's hooks system calls on_doc_event() via hooks.py registration
+        4. on_doc_event() queries for matching automations (with FIXED query)
+        5. We verify the hook was actually called by checking the query executed
+        
+        This is the ONLY test that catches:
+        - Hook wiring errors in hooks.py
+        - Hook caching issues
+        - Import path errors
+        """
+        # 1. Create a Published automation
+        auto = frappe.get_doc({
+            "doctype": "Automation",
+            "automation_name": "TEST-Hooks-Real",
+            "status": "Published",
+            "enabled": 1,
+            "triggers": [{
+                "trigger_doctype": "ToDo",
+                "trigger_event": "On Update",
+                "condition_field": "",
+                "condition_operator": "=",
+                "condition_value": "",
+            }],
+            "graph_definition": json.dumps({
+                "nodes": [
+                    {"id": "trigger", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {"trigger_doctype": "ToDo", "trigger_event": "On Update"}},
+                    {"id": "action-1", "type": "action", "position": {"x": 0, "y": 170}, "data": {"action_type": "telegram", "chat_id": "TEST", "message": "Real hooks test"}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "action-1", "sourceHandle": "trigger-out", "targetHandle": "action-1-in"},
+                ],
+            }),
+        })
+        auto.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Verify automation exists with correct trigger
+        self.assertTrue(frappe.db.exists("Automation", auto.name))
+        triggers = frappe.get_all(
+            "Automation Trigger",
+            filters={"parent": auto.name},
+            fields=["trigger_doctype", "trigger_event"],
+        )
+        self.assertEqual(len(triggers), 1)
+        self.assertEqual(triggers[0].trigger_doctype, "ToDo")
+
+        # 2. Patch frappe.enqueue to capture calls (don't execute synchronously)
+        enqueued_calls = []
+        original_enqueue = frappe.enqueue
+
+        def capture_enqueue(*args, **kwargs):
+            enqueued_calls.append({"args": args, "kwargs": kwargs})
+            # Don't actually execute - just capture the call
+            return None
+
+        frappe.enqueue = capture_enqueue
+
+        try:
+            # 3. Save a ToDo through frappe's normal document.save()
+            #    This triggers the REAL hooks system — not a direct function call
+            todo = frappe.get_doc({
+                "doctype": "ToDo",
+                "description": "Real hooks integration test",
+                "status": "Open",
+            })
+            todo.insert(ignore_permissions=True)
+            frappe.db.commit()
+        finally:
+            # Restore original enqueue
+            frappe.enqueue = original_enqueue
+
+        # 4. Verify that on_doc_event() was called (enqueue was invoked)
+        self.assertGreater(
+            len(enqueued_calls), 0,
+            f"FAILED: frappe.enqueue() was never called. "
+            f"This means the REAL hooks system did not fire on_doc_event(). "
+            f"Possible causes:\n"
+            f"1. hooks.py doc_events registration is broken\n"
+            f"2. Import path 'automation_builder.dispatcher.on_doc_event' is wrong\n"
+            f"3. Frappe's hook cache is stale"
+        )
+
+        # 5. Verify the enqueue call was for execute_automation
+        enqueue_methods = [c["args"][0] if c["args"] else c["kwargs"].get("method") for c in enqueued_calls]
+        self.assertIn(
+            "automation_builder.dispatcher.execute_automation",
+            enqueue_methods,
+            f"Expected enqueue for execute_automation, got: {enqueue_methods}"
+        )
+
+        # 6. Verify our specific automation was enqueued (not just any automation)
+        enqueued_automation_names = [c["kwargs"].get("automation_name") for c in enqueued_calls]
+        
+        # The dispatcher loops through ALL matching automations, so we should
+        # see at least one enqueue for our automation
+        self.assertIn(
+            auto.name,
+            enqueued_automation_names,
+            f"Expected enqueue for {auto.name}, but enqueued for: {enqueued_automation_names}. "
+            f"This means the dispatcher query found other automations but not ours. "
+            f"Total enqueue calls: {len(enqueued_calls)}"
+        )
+
+        # 7. Verify the enqueue call has correct parameters
+        our_enqueue = next(
+            (c for c in enqueued_calls if c["kwargs"].get("automation_name") == auto.name),
+            None
+        )
+        self.assertIsNotNone(our_enqueue, f"No enqueue call found for {auto.name}")
+        self.assertEqual(our_enqueue["kwargs"].get("ref_doctype"), "ToDo")
+        self.assertEqual(our_enqueue["kwargs"].get("ref_name"), todo.name)
+
+        # NOTE: We don't verify Automation Run creation here because we're
+        # capturing enqueue calls, not executing them synchronously.
+        # The TestFullPathIntegration tests verify that execute_automation()
+        # creates Run records when called directly.

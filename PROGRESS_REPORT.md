@@ -1632,3 +1632,38 @@ def test_full_trigger_to_dispatch_to_execute(self):
 4. Verifies the run has the expected status
 
 This is the only way to catch bugs in the actual dispatch path, not just in internal helper functions.
+
+### Real hooks verification — PASS ✅
+
+**Test:** `TestRealHooksIntegration.test_real_hooks_fires_end_to_end`
+
+**What it does:**
+1. Creates a Published automation `TEST-Hooks-Real` with `trigger_doctype="ToDo"` in child table
+2. Saves a ToDo through frappe's normal `document.save()` — NOT calling `on_doc_event()` directly
+3. Patches `frappe.enqueue` to capture calls (without executing)
+4. Verifies the REAL hooks system fired `on_doc_event()` via `hooks.py` registration
+
+**Result:** PASS ✅
+
+**Evidence:**
+```
+enqueued_calls = [
+    {'kwargs': {'automation_name': 'Email sample', 'ref_doctype': 'ToDo', ...}},
+    {'kwargs': {'automation_name': 'TEST-Hooks-Real', 'ref_doctype': 'ToDo', ...}}
+]
+```
+
+**What this proves:**
+- `hooks.py` doc_events registration (`"*"` wildcard) is correctly wired
+- Frappe's hooks system calls `automation_builder.dispatcher.on_doc_event` on document save
+- The dispatcher query finds matching automations (including our test automation)
+- `frappe.enqueue()` is called for each matching automation
+- No hook caching issues
+
+**This test would have caught the Stage 17a NULL-field bug** because:
+- The old query filtered on parent table fields (`trigger_doctype`, `trigger_event`) which are NULL
+- The old query would NOT find our test automation
+- `frappe.enqueue()` would NOT be called for `TEST-Hooks-Real`
+- The test would fail: "Expected enqueue for TEST-Hooks-Real, but enqueued for: ['Email sample']"
+
+**Total: 29 tests, 0 fail**
