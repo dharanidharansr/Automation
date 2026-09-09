@@ -1,9 +1,9 @@
-function call(method, args = {}) {
-  return frappe.call({
+async function call(method, args = {}) {
+  const result = await frappe.call({
     method: `automation_builder.api.${method}`,
     args,
-    async: false,
-  }).then(r => r.message)
+  })
+  return result.message
 }
 
 export function getDoctypeFields(doctype) {

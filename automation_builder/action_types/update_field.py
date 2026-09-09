@@ -16,9 +16,9 @@ CONFIG_SCHEMA = [
     },
     {
         "name": "link_fieldname",
-        "type": "data",
-        "label": "Link Field",
-        "description": "Field on the trigger doc that links to the document to update. Only used when Target = Linked Document. Supports {{trigger.fieldname}} tokens.",
+        "type": "link_field_select",
+        "label": "Via Link Field",
+        "description": "Field on the trigger doc that links to the document to update. Only shown when Target = Linked Document.",
         "depends_on": "target",
         "depends_on_value": "Linked Document",
     },
@@ -69,7 +69,19 @@ def execute(context, config):
             raise ValueError(
                 f"Link field '{link_fieldname}' is empty on the trigger document"
             )
-        target_doc = frappe.get_doc(doc.doctype, linked_name)
+        # Resolve the linked doctype from the field metadata, not from doc.doctype
+        meta = frappe.get_meta(doc.doctype)
+        link_field = meta.get_field(link_fieldname)
+        if not link_field:
+            raise ValueError(
+                f"Field '{link_fieldname}' not found on {doc.doctype}"
+            )
+        linked_doctype = link_field.options
+        if not linked_doctype:
+            raise ValueError(
+                f"Field '{link_fieldname}' has no linked DocType configured"
+            )
+        target_doc = frappe.get_doc(linked_doctype, linked_name)
     else:
         target_doc = doc
 

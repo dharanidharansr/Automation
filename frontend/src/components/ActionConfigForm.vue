@@ -24,7 +24,7 @@
       <select
         v-else-if="field.type === 'select'"
         :value="config[field.name]"
-        @change="update(field.name, $event.target.value)"
+        @change="onSelectChange(field.name, $event.target.value)"
       >
         <option value="">Select...</option>
         <option v-for="opt in field.options" :key="opt" :value="opt">{{ opt }}</option>
@@ -40,6 +40,18 @@
         <option v-for="dt in doctypes" :key="dt.name" :value="dt.name">{{ dt.name }}</option>
       </select>
 
+      <!-- link_field_select: dropdown of Link fields from trigger doctype -->
+      <select
+        v-else-if="field.type === 'link_field_select'"
+        :value="config[field.name]"
+        @change="onLinkFieldnameChange($event.target.value)"
+      >
+        <option value="">Select link field...</option>
+        <option v-for="f in linkFieldsFromTrigger" :key="f.fieldname" :value="f.fieldname">
+          {{ f.label }} ({{ f.fieldname }} → {{ f.options }})
+        </option>
+      </select>
+
       <!-- field_mapping_table: repeatable target_field / source_value rows -->
       <template v-else-if="field.type === 'field_mapping_table'">
         <div v-if="config[field.name] && config[field.name].length" class="ab-mapping-rows">
@@ -50,7 +62,7 @@
               @change="updateMapping(field.name, idx, 'target_field', $event.target.value)"
             >
               <option value="">Select field</option>
-              <option v-for="f in targetFields" :key="f.fieldname" :value="f.fieldname">
+              <option v-for="f in effectiveTargetFields" :key="f.fieldname" :value="f.fieldname">
                 {{ f.label }}
               </option>
             </select>
@@ -91,7 +103,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { getDoctypeList, getDoctypeFields, listEmailTemplates } from '../composables/api.js'
 
 const props = defineProps({
@@ -103,9 +115,22 @@ const props = defineProps({
 const emit = defineEmits(['update:config'])
 
 const doctypes = ref([])
-const targetFields = ref([])
+const triggerFields = ref([])
+const linkedTargetFields = ref([])
 const emailTemplates = ref([])
 const tokenPlaceholder = '{{trigger.fieldname}}'
+
+const linkFieldsFromTrigger = computed(() => {
+  return triggerFields.value.filter(f => f.fieldtype === 'Link' && f.options)
+})
+
+const effectiveTargetFields = computed(() => {
+  const isLinked = props.config.action_type === 'update_field' && props.config.target === 'Linked Document'
+  if (isLinked && linkedTargetFields.value.length) {
+    return linkedTargetFields.value
+  }
+  return triggerFields.value
+})
 
 function isFieldVisible(field) {
   if (!field.depends_on) return true
@@ -120,25 +145,30 @@ function update(fieldName, value) {
   emit('update:config', { ...props.config, [fieldName]: value })
 }
 
+function onSelectChange(fieldName, value) {
+  const newConfig = { ...props.config, [fieldName]: value }
+  if (fieldName === 'target') {
+    newConfig.field_mapping = [{ target_field: '', source_value: '' }]
+    newConfig.link_fieldname = ''
+    linkedTargetFields.value = []
+  }
+  emit('update:config', newConfig)
+  // Give parent time to update props, then reload fields
+  setTimeout(() => loadFields(), 100)
+}
+
 function onDoctypeChange(fieldName, value) {
   const newConfig = { ...props.config, [fieldName]: value }
   if (fieldName === 'target_doctype') {
     newConfig.field_mapping = [{ target_field: '', source_value: '' }]
-    loadTargetFields(value)
   }
   emit('update:config', newConfig)
 }
 
-function loadTargetFields(doctype) {
-  if (!doctype) {
-    targetFields.value = []
-    return
-  }
-  getDoctypeFields(doctype).then(fields => {
-    targetFields.value = fields
-  }).catch(() => {
-    targetFields.value = []
-  })
+function onLinkFieldnameChange(value) {
+  const newConfig = { ...props.config, link_fieldname: value, field_mapping: [{ target_field: '', source_value: '' }] }
+  emit('update:config', newConfig)
+  setTimeout(() => loadFields(), 100)
 }
 
 function addMapping(fieldName) {
@@ -159,25 +189,90 @@ function updateMapping(fieldName, idx, key, value) {
   emit('update:config', { ...props.config, [fieldName]: mappings })
 }
 
+// Core field loading function — called explicitly, not via watchEffect
+async function loadFields() {
+  const triggerDt = props.triggerDoctype
+  const actionType = props.config.action_type
+  const target = props.config.target
+  const linkFieldname = props.config.link_fieldname
+  const targetDoctype = props.config.target_doctype
+
+  console.log('[ACF] loadFields called', { triggerDt, actionType, target, linkFieldname, targetDoctype })
+
+  if (actionType === 'update_field') {
+    if (target === 'Linked Document' && linkFieldname && triggerDt) {
+      try {
+        const allFields = await getDoctypeFields(triggerDt)
+        const lf = allFields.find(f => f.fieldname === linkFieldname)
+        if (lf && lf.options) {
+          linkedTargetFields.value = await getDoctypeFields(lf.options)
+          console.log('[ACF] Loaded linked fields:', linkedTargetFields.value.length)
+        } else {
+          linkedTargetFields.value = []
+        }
+      } catch (e) {
+        console.error('[ACF] Failed to load linked fields', e)
+        linkedTargetFields.value = []
+      }
+    } else if (triggerDt) {
+      try {
+        triggerFields.value = await getDoctypeFields(triggerDt)
+        console.log('[ACF] Loaded trigger fields for Same Document:', triggerFields.value.length)
+      } catch (e) {
+        console.error('[ACF] Failed to load trigger fields', e)
+        triggerFields.value = []
+      }
+      linkedTargetFields.value = []
+    }
+  } else if (actionType === 'create_document' && targetDoctype) {
+    try {
+      triggerFields.value = await getDoctypeFields(targetDoctype)
+      console.log('[ACF] Loaded create_document target fields:', triggerFields.value.length)
+    } catch (e) {
+      triggerFields.value = []
+    }
+  } else if (triggerDt) {
+    try {
+      triggerFields.value = await getDoctypeFields(triggerDt)
+      console.log('[ACF] Loaded default trigger fields:', triggerFields.value.length)
+    } catch (e) {
+      triggerFields.value = []
+    }
+  }
+}
+
 onMounted(async () => {
   try {
     doctypes.value = await getDoctypeList()
   } catch (e) {
-    console.error('Failed to load doctypes', e)
+    console.error('[ACF] Failed to load doctypes', e)
   }
 
   try {
     emailTemplates.value = await listEmailTemplates()
   } catch (e) {
-    console.error('Failed to load email templates', e)
+    console.error('[ACF] Failed to load email templates', e)
   }
 
-  if (props.config.target_doctype) {
-    loadTargetFields(props.config.target_doctype)
-  }
+  await loadFields()
 })
 
-watch(() => props.config.target_doctype, (val) => {
-  if (val) loadTargetFields(val)
-})
+// Watch triggerDoctype changes (e.g., user sets trigger doctype after adding action)
+watch(
+  () => props.triggerDoctype,
+  (val) => {
+    console.log('[ACF] triggerDoctype changed:', val)
+    loadFields()
+  }
+)
+
+// Deep watch on config to catch any property changes
+watch(
+  () => props.config,
+  (val) => {
+    console.log('[ACF] config changed:', JSON.stringify(val))
+    loadFields()
+  },
+  { deep: true }
+)
 </script>

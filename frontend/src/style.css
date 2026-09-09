@@ -329,7 +329,7 @@
   padding: 0;
   border-radius: var(--border-radius);
   border: 1px solid var(--border-color);
-  min-width: 220px;
+  min-width: 240px;
   max-width: 280px;
   background: var(--card-bg);
   box-shadow: var(--shadow-sm);
@@ -343,16 +343,17 @@
   border-color: var(--gray-300);
 }
 
-.ab-node.selected {
-  border-color: var(--blue-500);
-  box-shadow: 0 0 0 2px var(--blue-100);
-}
-
 .ab-node-header {
   padding: 10px 14px 8px;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.ab-node-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0 14px;
 }
 
 .ab-node-icon {
@@ -372,35 +373,43 @@
   flex-shrink: 0;
 }
 
-/* Trigger: blue tint */
-.ab-node-trigger .ab-node-icon,
-.ab-node-trigger .ab-node-icon-svg {
+/* Node icon wrappers with accent backgrounds */
+.ab-node-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--border-radius-sm);
+  flex-shrink: 0;
+}
+
+.ab-node-icon-wrap--trigger {
   background: var(--bg-blue);
   color: var(--blue-500);
 }
 
+.ab-node-icon-wrap--condition {
+  background: var(--bg-orange);
+  color: var(--orange-500);
+}
+
+.ab-node-icon-wrap--action {
+  background: var(--bg-green);
+  color: var(--green-600);
+}
+
+/* Trigger: blue tint */
 .ab-node-trigger .ab-node-title {
   color: var(--blue-500);
 }
 
 /* Condition: amber tint */
-.ab-node-condition .ab-node-icon,
-.ab-node-condition .ab-node-icon-svg {
-  background: var(--bg-orange);
-  color: var(--orange-500);
-}
-
 .ab-node-condition .ab-node-title {
   color: var(--orange-500);
 }
 
 /* Action: green tint */
-.ab-node-action .ab-node-icon,
-.ab-node-action .ab-node-icon-svg {
-  background: var(--bg-green);
-  color: var(--green-600);
-}
-
 .ab-node-action .ab-node-title {
   color: var(--green-600);
 }
@@ -412,14 +421,14 @@
 }
 
 .ab-node-body {
-  padding: 4px 14px 12px;
+  padding: 8px 14px 12px;
   font-size: var(--text-base);
   color: var(--text-color);
   line-height: 1.4;
 }
 
-.ab-node-body span {
-  color: var(--text-muted);
+.ab-node-placeholder {
+  color: var(--text-light);
   font-style: italic;
 }
 
@@ -430,6 +439,30 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Selected/focused node state */
+.ab-node-selected {
+  border-color: var(--blue-500) !important;
+  box-shadow: 0 0 0 2px var(--blue-100) !important;
+}
+
+/* Handle positioning for 4-side handles */
+.vue-flow__handle-top {
+  top: -4px !important;
+}
+
+.vue-flow__handle-bottom {
+  left: 50% !important;
+  bottom: -4px !important;
+}
+
+.vue-flow__handle-right {
+  right: -4px !important;
+}
+
+.vue-flow__handle-left {
+  left: -4px !important;
 }
 
 /* Vue Flow handles */
@@ -905,6 +938,10 @@
 }
 
 /* === Dark Mode === */
+[data-theme="dark"] .vue-flow__background circle {
+  fill: #444 !important;
+}
+
 [data-theme="dark"] .ab-node {
   border-color: var(--border-color);
 }
@@ -1025,3 +1062,119 @@
 .vue-flow__handle[style*="not-allowed"] {
   cursor: not-allowed !important;
 }
+
+/* === Left Sidebar Node Palette (Part A3) === */
+.ab-node-palette {
+  width: 200px;
+  border-right: 1px solid var(--border-color);
+  background: var(--card-bg);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  transition: width 0.2s;
+  overflow-y: auto;
+}
+
+.ab-node-palette--collapsed {
+  width: 36px;
+}
+
+.ab-node-palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-color);
+  min-height: 36px;
+}
+
+.ab-node-palette-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--heading-color);
+  white-space: nowrap;
+}
+
+.ab-node-palette-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.ab-node-palette-toggle:hover {
+  background: var(--control-bg);
+  color: var(--text-color);
+}
+
+.ab-node-palette-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.ab-node-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--border-radius-sm);
+  cursor: grab;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.ab-node-palette-item:hover {
+  background: var(--control-bg);
+}
+
+.ab-node-palette-item:active {
+  cursor: grabbing;
+}
+
+.ab-node-palette-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--border-radius-sm);
+  flex-shrink: 0;
+}
+
+.ab-node-palette-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ab-node-palette-icon--condition {
+  background: var(--bg-orange);
+  color: var(--orange-500);
+}
+
+.ab-node-palette-icon--action {
+  background: var(--bg-green);
+  color: var(--green-600);
+}
+
+.ab-node-palette-label {
+  font-size: var(--text-sm);
+  color: var(--text-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-theme="dark"] .ab-node-palette {
+  border-right-color: var(--border-color);
+}
+
+/* === Node Card Redesign (Part A4) — consolidated above === */

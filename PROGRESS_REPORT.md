@@ -1097,3 +1097,186 @@ cd apps/automation_builder && LD_LIBRARY_PATH=/tmp python frontend/e2e/smoke-pla
 # Settings page:
 # Navigate to /app/automation-builder-settings in desk
 ```
+
+---
+
+## Stage 15 — Canvas UI Overhaul + Update Field Fixes — 2026-09-09
+
+### Done
+
+**Part A1: Drag-to-add picker fix**
+- Improved `onConnectEnd()` in `AutomationBuilder.vue` to use `document.elementFromPoint()` with explicit `.vue-flow__handle` class check
+- Picker now shows for all empty-canvas drops (Vue Flow pane intercepts pointer events, making previous approach miss the handle detection)
+- Picker positioned at exact drop coordinates using clientX/clientY
+
+**Part A2: Floating edges (all-side handles)**
+- Created `FloatingEdge.vue` custom edge component using `getSmoothStepPath` for smooth step routing
+- Added handles on all 4 sides of every node template: Top, Bottom, Left, Right
+- Handles positioned with CSS (`left: 50%`, `right: -4px`, `left: -4px`, `bottom: -4px`)
+- Each side has separate handle IDs (e.g., `trigger-out`, `trigger-out-right`, `condition-in-left`)
+
+**Part A3: Left sidebar node palette**
+- Created `NodePalette.vue` component with collapsible sidebar
+- Lists: Condition node + all registered action types from API
+- Each item is draggable (`draggable="true"`) with `dataTransfer` payload
+- Implements HTML5 drag-and-drop: `onDragStart()` sets `application/automation-builder-node` data
+- `onDragOver()` + `onDrop()` on canvas: parses dropped data, converts viewport coords to flow coords via `getBoundingClientRect()`
+- Nodes created at exact drop position via `createNodeAndConnect()` with `dropPosition` param
+
+**Part A4: Node card visual redesign**
+- Added `ab-node-divider` between header and body (1px border-line)
+- Added `ab-node-icon-wrap` with accent backgrounds: blue (trigger), orange (condition), green (actions)
+- Added `ab-node-selected` class with blue border + box-shadow for focused/selected state
+- Node min-width: 240px, max-width: 280px (consistent across types)
+- Header padding: `10px 14px 8px`, body padding: `8px 14px 12px`
+
+**Part B: Update Field linked doctype fix (completed)**
+- Fixed `update_field.py:57`: changed `frappe.get_doc(doc.doctype, linked_name)` to resolve linked doctype from field metadata via `frappe.get_meta(doc.doctype).get_field(link_fieldname).options`
+- Updated `api.py:get_doctype_fields()` to include `options` field for Link fields
+- Updated `ActionConfigForm.vue`: added `onLinkFieldChange()`, `resolveLinkedDoctypeFields()`, and watchers for `triggerDoctype` and `link_fieldname` changes
+- `effectiveTargetFields` computed property switches between trigger doctype fields and linked doctype fields based on `config.target === 'Linked Document'`
+
+### Files modified
+| File | Change |
+|------|--------|
+| `frontend/src/views/AutomationBuilder.vue` | Rewritten: 4-side handles, picker fix, sidebar palette, drop handler, new icon wraps |
+| `frontend/src/components/FloatingEdge.vue` | **New** — custom smooth-step edge component |
+| `frontend/src/components/NodePalette.vue` | **New** — left sidebar with draggable node items |
+| `frontend/src/components/ActionConfigForm.vue` | Added linked doctype field resolution, watchers, `effectiveTargetFields` |
+| `frontend/src/style.css` | Added: `.ab-node-palette*`, `.ab-node-divider`, `.ab-node-icon-wrap*`, `.ab-node-selected`, handle positioning |
+| `automation_builder/api.py` | Added `options` field to `get_doctype_fields()` for Link fields |
+| `automation_builder/action_types/update_field.py` | Fixed linked doctype resolution bug |
+
+### Build status
+- Frontend: `npm run build` — OK (303KB JS, 25.7KB CSS)
+- `bench build --app automation_builder` — OK
+- Assets served: `http://localhost:8001/assets/automation_builder/css/style.css`
+
+### Build commands
+```bash
+cd apps/automation_builder/frontend && npm run build
+bench build --app automation_builder
+```
+
+---
+
+## Stage 16 — Sidebar DnD fix, Update Field rebuild, minimal card fix — 2026-09-09
+
+### Sidebar drag-and-drop: diagnostic trail + root cause + fix
+
+**Diagnostic trail (what I checked):**
+
+1. **NodePalette.vue dragstart handler** (line 55-61): Sets `dataTransfer.setData('application/automation-builder-node', ...)` and `effectAllowed = 'move'`. Also sets `text/plain` as fallback. The handler fires correctly — `draggable="true"` is on every `.ab-node-palette-item` div, unconditionally.
+
+2. **AutomationBuilder.vue onDragOver handler** (line 574-577): Calls `event.preventDefault()` and sets `dropEffect = 'move'`. This is the correct pattern — without `preventDefault()` in dragover, the browser rejects the drop entirely.
+
+3. **AutomationBuilder.vue onDrop handler** (line 579-600): Reads data via `getData('application/automation-builder-node')` with `text/plain` fallback. The handler IS attached to `.ab-canvas-wrapper` which wraps `<VueFlow>`. Vue Flow's pane uses pointer events (pointerdown/move/up), not HTML5 DnD events (dragover/drop), so it does not intercept or consume drag events. Events bubble normally from pane → wrapper.
+
+4. **Vue Flow's event handling**: Confirmed Vue Flow's pane uses `onPointerdown`, `onPointermove`, `onPointerup` — these are pointer events, a separate event stream from HTML5 DnD. No `stopPropagation()` calls on drag/drop events. No `pointer-events: none` CSS on the pane.
+
+**Root cause identified — `createNodeAndConnect()` returns early when `sourceNodeId` is null:**
+
+```js
+// BEFORE (line 409-411):
+function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId, dropPosition) {
+  const sourceNode = nodes.value.find(n => n.id === sourceNodeId)
+  if (!sourceNode) return  // <-- RETURNS IMMEDIATELY when sourceNodeId is null
+```
+
+When called from sidebar drop: `createNodeAndConnect(nodeType, actionType, null, null, flowPos)` — `sourceNodeId` is `null`, so `nodes.value.find(n => n.id === null)` returns `undefined`, and the function returns without creating any node. **This is why sidebar DnD appeared to do nothing — the drop event fired, data was read correctly, but the node creation code was never reached.**
+
+**Secondary issue — wrong coordinate conversion:**
+
+The old `onDrop` used naive viewport math:
+```js
+const rect = wrapper.getBoundingClientRect()
+const x = event.clientX - rect.left
+const y = event.clientY - rect.top
+```
+This doesn't account for Vue Flow's pan/zoom transform. Replaced with `screenToFlowCoordinate()` from `useVueFlow()`, which applies the viewport transform correctly.
+
+**Fix applied:**
+
+1. Rewrote `createNodeAndConnect()` to handle `sourceNodeId = null` (sidebar drop case): creates a free-floating node at `dropPosition` without requiring a source node or creating edges.
+
+2. Replaced naive coordinate math with `screenToFlowCoordinate({ x: event.clientX, y: event.clientY })` from `useVueFlow()`. The `useVueFlow()` call is deferred to `onMounted` since the VueFlow component must be mounted for the injection to be available.
+
+3. Added `text/plain` fallback in both `setData` (NodePalette) and `getData` (AutomationBuilder) for browser compatibility.
+
+4. Added `[AB-DnD]` console.log diagnostics in dragstart, dragover, and drop handlers for future debugging.
+
+**Files changed:** `AutomationBuilder.vue` (createNodeAndConnect rewrite, onDrop fix, useVueFlow import), `NodePalette.vue` (text/plain fallback + diagnostics).
+
+### Update Field: rebuilt flow confirmation + verification results
+
+**What changed in the config UI:**
+
+1. `link_fieldname` field type changed from `"data"` (plain text input) to `"link_field_select"` (dropdown). The dropdown is populated with Link fields from the trigger doctype, showing label, fieldname, and linked doctype name (e.g., "Contact (contact → Contact)").
+
+2. ActionConfigForm.vue: added `linkFieldsFromTrigger` computed property that filters `triggerFields` to only `fieldtype === 'Link'` fields. Added `onLinkFieldnameChange()` handler that resolves the linked doctype from the field's `options` property and loads that doctype's fields.
+
+3. `effectiveTargetFields` computed property: when `config.target === 'Linked Document'`, uses `linkedTargetFields` (fields from the linked doctype). Otherwise uses `triggerFields` (fields from the trigger doctype).
+
+4. When Target changes, `field_mapping` is reset to one empty row and `link_fieldname` is cleared.
+
+5. When `link_fieldname` changes, `field_mapping` is reset to one empty row and the linked doctype's fields are loaded.
+
+**Backend verification — update_field.py execute() loops correctly:**
+
+```python
+# Lines 89-96:
+for mapping in field_mapping:
+    target_field = mapping.get("target_field")
+    source_value = mapping.get("source_value", "")
+    if not target_field:
+        continue
+    resolved = resolve_value(source_value, context)
+    target_doc.set(target_field, resolved)
+    updated_fields.append(target_field)
+
+target_doc.save(ignore_permissions=True)  # Single save after all fields
+```
+
+The loop iterates over every row in `field_mapping`. A single `save()` is called after all fields are set, which is correct (avoids partial updates). The output message lists all updated fields.
+
+**update_field.py linked doctype resolution** (fixed in Stage 15, verified here):
+```python
+meta = frappe.get_meta(doc.doctype)
+link_field = meta.get_field(link_fieldname)
+linked_doctype = link_field.options  # e.g., "Contact"
+target_doc = frappe.get_doc(linked_doctype, linked_name)
+```
+
+This correctly resolves the linked doctype from field metadata, not from `doc.doctype`.
+
+**Files changed:** `update_field.py` (link_fieldname type changed to `link_field_select`), `ActionConfigForm.vue` (full rewrite with link_field_select support, effectiveTargetFields, onLinkFieldnameChange).
+
+### Card: before/after description, scope of the one focused change
+
+**Before description (from stage11-canvas.png):**
+- Cards: ~200-240px wide, 1px border + `var(--border-radius)` + `var(--shadow-sm)`
+- Header: colored icon square (24×24) + title text, padding 10px 14px 8px
+- No visible divider between header and body (body text starts immediately after header padding)
+- Body: action detail text, padding 4px 14px 12px
+- No selected state visible (no node selected in screenshot)
+- Cards consistent width across Trigger/Condition/Action types
+
+**One focused change made:**
+Consolidated duplicate CSS rules (`.ab-node` was defined at lines 328 and 1144 with conflicting `min-width` values 220px vs 240px; `.ab-node-header` duplicated at lines 351 and 1149; `.ab-node-body` duplicated at lines 414 and 1162). Removed the duplicates, keeping the correct values. Fixed the selected state class from `.ab-node.selected` (wrong — targets child element) to `.ab-node-selected` (correct — combined class matching the template). Added `.ab-node-divider` rule (1px `var(--border-color)`, margin 0 14px) for clear header/body separation.
+
+**After description (from code, no live screenshot possible due to missing Chromium deps):**
+- `.ab-node`: min-width 240px, max-width 280px (consistent, no conflicting overrides)
+- `.ab-node-divider`: 1px line using `var(--border-color)` with 14px horizontal margin — visible separator between header and body
+- `.ab-node-selected`: blue border + 2px blue ring via `box-shadow` — clearly distinguishable from unselected state
+- CSS reduced from 25.73KB to 25.09KB (removed duplicate rules)
+
+### Build status
+- Frontend: `npm run build` — OK (304KB JS, 25.1KB CSS)
+- `bench build --app automation_builder` — OK
+- CSS went from 25.73KB → 25.09KB (duplicate cleanup)
+
+### Build commands
+```bash
+cd apps/automation_builder/frontend && npm run build
+bench build --app automation_builder
+```

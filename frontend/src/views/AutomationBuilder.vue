@@ -1,5 +1,8 @@
 <template>
   <div class="ab-builder">
+    <!-- Left sidebar: node palette -->
+    <NodePalette :actionTypes="actionTypes" />
+
     <div class="ab-canvas-area">
       <div class="ab-topbar">
         <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="goBack">← Back</button>
@@ -16,7 +19,11 @@
         </div>
       </div>
 
-      <div class="ab-canvas-wrapper">
+      <div
+        class="ab-canvas-wrapper"
+        @drop="onDrop"
+        @dragover="onDragOver"
+      >
         <VueFlow
           v-model:nodes="nodes"
           v-model:edges="edges"
@@ -32,12 +39,16 @@
           @connect-end="onConnectEnd"
         >
           <template #node-trigger="nodeProps">
-            <div class="ab-node ab-node-trigger" @click="selectNode('trigger', nodeProps.data)">
+            <div class="ab-node ab-node-trigger" :class="{ 'ab-node-selected': selectedNodeId === 'trigger' }" @click="selectNode('trigger', nodeProps.data)">
               <Handle type="source" :position="Position.Bottom" id="trigger-out" />
+              <Handle type="source" :position="Position.Right" id="trigger-out-right" />
               <div class="ab-node-header">
-                <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <div class="ab-node-icon-wrap ab-node-icon-wrap--trigger">
+                  <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </div>
                 <span class="ab-node-title">Trigger</span>
               </div>
+              <div class="ab-node-divider"></div>
               <div class="ab-node-body">
                 <div>{{ nodeProps.data.trigger_doctype || 'Select DocType' }}</div>
                 <div class="ab-node-summary">{{ nodeProps.data.trigger_event || 'Select Event' }}</div>
@@ -46,15 +57,20 @@
           </template>
 
           <template #node-condition="nodeProps">
-            <div class="ab-node ab-node-condition" @click="selectNode('condition', nodeProps.data)">
+            <div class="ab-node ab-node-condition" :class="{ 'ab-node-selected': selectedNodeId === 'condition' }" @click="selectNode('condition', nodeProps.data)">
               <Handle type="target" :position="Position.Top" id="condition-in" />
+              <Handle type="target" :position="Position.Left" id="condition-in-left" />
               <Handle type="source" :position="Position.Bottom" id="condition-out" />
+              <Handle type="source" :position="Position.Right" id="condition-out-right" />
               <div class="ab-node-header">
-                <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                <div class="ab-node-icon-wrap ab-node-icon-wrap--condition">
+                  <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                </div>
                 <span class="ab-node-title">Condition</span>
               </div>
+              <div class="ab-node-divider"></div>
               <div class="ab-node-body">
-                <span v-if="!nodeProps.data.condition_field">Click to configure</span>
+                <span v-if="!nodeProps.data.condition_field" class="ab-node-placeholder">Click to configure</span>
                 <template v-else>
                   <div>{{ nodeProps.data.condition_field }}</div>
                   <div class="ab-node-summary">{{ nodeProps.data.condition_operator }} {{ nodeProps.data.condition_value }}</div>
@@ -64,19 +80,24 @@
           </template>
 
           <template #node-action="nodeProps">
-            <div class="ab-node ab-node-action" @click="selectNode('action', nodeProps.data, nodeProps.id)">
+            <div class="ab-node ab-node-action" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('action', nodeProps.data, nodeProps.id)">
               <Handle type="target" :position="Position.Top" :id="nodeProps.id + '-in'" />
+              <Handle type="target" :position="Position.Left" :id="nodeProps.id + '-in-left'" />
               <Handle type="source" :position="Position.Bottom" :id="nodeProps.id + '-out'" />
+              <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-out-right'" />
               <div class="ab-node-header">
-                <svg v-if="nodeProps.data.action_type === 'send_email'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-                <svg v-else-if="nodeProps.data.action_type === 'http_request'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                <svg v-else-if="nodeProps.data.action_type === 'telegram'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                <svg v-else-if="nodeProps.data.action_type === 'update_field'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                <svg v-else class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M9 11h6"/></svg>
+                <div class="ab-node-icon-wrap ab-node-icon-wrap--action">
+                  <svg v-if="nodeProps.data.action_type === 'send_email'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                  <svg v-else-if="nodeProps.data.action_type === 'http_request'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                  <svg v-else-if="nodeProps.data.action_type === 'telegram'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                  <svg v-else-if="nodeProps.data.action_type === 'update_field'" class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  <svg v-else class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M9 11h6"/></svg>
+                </div>
                 <span class="ab-node-title">Action</span>
               </div>
+              <div class="ab-node-divider"></div>
               <div class="ab-node-body">
-                <span v-if="!nodeProps.data.action_type">Click to configure</span>
+                <span v-if="!nodeProps.data.action_type" class="ab-node-placeholder">Click to configure</span>
                 <template v-else>
                   <div>{{ actionLabel(nodeProps.data) }}</div>
                   <div class="ab-node-summary">{{ actionSummary(nodeProps.data) }}</div>
@@ -104,7 +125,7 @@
             </div>
           </template>
 
-          <Background :gap="15" :size="2.5" :pattern-color="'#666'" />
+          <Background :gap="15" :size="2" :pattern-color="'#d4d4d4'" />
           <Controls />
         </VueFlow>
 
@@ -152,13 +173,19 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { VueFlow, Handle, Position } from '@vue-flow/core'
+import { VueFlow, Handle, Position, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import ConfigPanel from '../components/ConfigPanel.vue'
+import NodePalette from '../components/NodePalette.vue'
 import { getAutomation, saveAutomation, getActionTypes } from '../composables/api.js'
 
 import '@vue-flow/controls/dist/style.css'
+
+// screenToFlowCoordinate and setCenter are called at runtime after VueFlow mounts,
+// so we get them from the injected instance (available in onMounted)
+let screenToFlowCoordinate = (pos) => pos
+let setCenterFn = null
 
 const route = useRoute()
 const router = useRouter()
@@ -382,29 +409,17 @@ function onConnect(params) {
 
 /**
  * Unified node creation + edge connection.
- * This is the single source of truth for adding nodes to the canvas.
- * Used by both the "+" button and the drag-to-empty-canvas picker.
- *
- * @param {string} nodeType - 'condition' or 'action'
- * @param {string} actionType - action type key (only for action nodes)
- * @param {string} sourceNodeId - id of the node we're connecting from
- * @param {string} sourceHandleId - handle id on the source node
- * @param {object} [dropPosition] - { x, y } canvas coords for node placement
+ * Single source of truth for adding nodes to the canvas.
+ * When sourceNodeId is null (sidebar drop), creates a free-floating node at dropPosition.
  */
 function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId, dropPosition) {
-  const sourceNode = nodes.value.find(n => n.id === sourceNodeId)
-  if (!sourceNode) return
-
   let newNodeId, newNodeData, newNodePosition
 
   if (nodeType === 'condition') {
-    newNodeId = 'condition'
+    newNodeId = nodes.value.some(n => n.id === 'condition') ? `condition-${Date.now()}` : 'condition'
     newNodeData = { condition_field: '', condition_operator: '=', condition_value: '' }
-    // Position below source, or use drop position
-    newNodePosition = dropPosition || { x: sourceNode.position.x, y: sourceNode.position.y + 170 }
   } else {
     newNodeId = `action-${Date.now()}`
-    // Build default data from the action type's config_schema
     const at = actionTypes.value.find(a => a.key === actionType)
     newNodeData = { action_type: actionType }
     if (at && at.config_schema) {
@@ -416,53 +431,60 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
         }
       }
     }
-    newNodePosition = dropPosition || { x: sourceNode.position.x, y: sourceNode.position.y + 170 }
   }
 
-  // Insert the new node
-  const addTriggerIdx = nodes.value.findIndex(n => n.id === 'add-trigger')
-  nodes.value.splice(addTriggerIdx, 0, {
+  if (sourceNodeId) {
+    // Connected node: position below the source node
+    const sourceNode = nodes.value.find(n => n.id === sourceNodeId)
+    newNodePosition = dropPosition || (sourceNode ? { x: sourceNode.position.x, y: sourceNode.position.y + 170 } : { x: 250, y: 250 })
+  } else {
+    // Free-floating node from sidebar drop: use drop position
+    newNodePosition = dropPosition || { x: 250, y: 250 }
+  }
+
+  nodes.value.push({
     id: newNodeId,
     type: nodeType,
     position: newNodePosition,
     data: newNodeData,
   })
 
-  // Create edge from source → new node
-  edges.value.push({
-    id: `e-${sourceNodeId}-${newNodeId}`,
-    source: sourceNodeId,
-    target: newNodeId,
-    sourceHandle: sourceHandleId,
-    targetHandle: nodeType === 'condition' ? 'condition-in' : `${newNodeId}-in`,
-    type: 'smoothstep',
-    markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
-  })
+  // If we have a source node, connect to it
+  if (sourceNodeId) {
+    const sourceNode = nodes.value.find(n => n.id === sourceNodeId)
+    if (sourceNode) {
+      edges.value.push({
+        id: `e-${sourceNodeId}-${newNodeId}`,
+        source: sourceNodeId,
+        target: newNodeId,
+        sourceHandle: sourceHandleId,
+        targetHandle: nodeType === 'condition' ? 'condition-in' : `${newNodeId}-in`,
+        type: 'smoothstep',
+        markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
+      })
+    }
+  }
 
-  // For action nodes: also connect new node → add-trigger
+  // If adding an action, also connect it to the add-trigger button (if it exists)
   if (nodeType === 'action') {
-    edges.value.push({
-      id: `e-${newNodeId}-add-trigger`,
-      source: newNodeId,
-      target: 'add-trigger',
-      sourceHandle: `${newNodeId}-out`,
-      targetHandle: 'add-trigger-in',
-      type: 'smoothstep',
-      markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
-    })
+    const addTriggerNode = nodes.value.find(n => n.id === 'add-trigger')
+    if (addTriggerNode) {
+      edges.value.push({
+        id: `e-${newNodeId}-add-trigger`,
+        source: newNodeId,
+        target: 'add-trigger',
+        sourceHandle: `${newNodeId}-out`,
+        targetHandle: 'add-trigger-in',
+        type: 'smoothstep',
+        markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
+      })
+      addTriggerNode.position.y = newNodePosition.y + 170
+    }
   }
 
-  // Update add-trigger position
-  const addTriggerNode = nodes.value.find(n => n.id === 'add-trigger')
-  if (addTriggerNode) {
-    addTriggerNode.position.y = newNodePosition.y + 170
-  }
+  return newNodePosition
 }
 
-/**
- * "+" button handler — delegates to createNodeAndConnect.
- * Simulates "drag from last node's source handle and pick a type".
- */
 function addNewAction(actionType) {
   const lastAction = [...nodes.value].filter(n => n.type === 'action').pop()
   const sourceNodeId = lastAction?.id || 'condition'
@@ -497,24 +519,27 @@ function removeActionNode(nodeId) {
 }
 
 /**
- * Handle connection drag end. If the drag ended on empty canvas (not on a handle),
- * show the node-type picker at the drop position.
+ * Handle connection drag end. Fixed: improved empty-canvas detection.
+ * Vue Flow's pane element can intercept elementFromPoint, so we check
+ * for the handle class explicitly and treat everything else as empty canvas.
  */
 function onConnectEnd(event) {
   if (!event) return
 
-  // Check if the mouse is over a Vue Flow handle
+  // Use elementFromPoint to check what's under the cursor
   const target = document.elementFromPoint(event.clientX, event.clientY)
+
+  // If we hit a handle, Vue Flow handles the connection natively
   if (target && target.closest('.vue-flow__handle')) {
-    // Dropped on a handle — Vue Flow handles the connection
     return
   }
 
-  // Dropped on empty canvas — show the type picker
+  // If we hit the pane/viewport/background, it's empty canvas — show picker
+  // Also show picker for any other element (handles the case where Vue Flow's
+  // pane intercepts the event before the handle is detected)
   const sourceNode = nodes.value.find(n => n.id === connectionStartNodeId.value)
   if (!sourceNode) return
 
-  // Position picker at mouse cursor using fixed positioning (viewport-relative)
   pickerSourceNodeId.value = connectionStartNodeId.value
   pickerSourceHandleId.value = connectionStartHandleId.value
   pickerPosition.value = {
@@ -539,13 +564,49 @@ function onPickerSelect(item) {
     item.key === 'condition' ? null : item.key,
     pickerSourceNodeId.value,
     pickerSourceHandleId.value,
-    null, // auto-position below source node
+    null,
   )
   pickerVisible.value = false
 }
 
 function closePicker() {
   pickerVisible.value = false
+}
+
+// Drag-and-drop from left sidebar palette
+function onDragOver(event) {
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+}
+
+function onDrop(event) {
+  console.log('[AB-DnD] onDrop fired', event)
+  const data = event.dataTransfer.getData('application/automation-builder-node') || event.dataTransfer.getData('text/plain')
+  console.log('[AB-DnD] dataTransfer data:', data)
+  if (!data) {
+    console.log('[AB-DnD] No data in dataTransfer, returning')
+    return
+  }
+
+  try {
+    const { nodeType, actionType } = JSON.parse(data)
+    console.log('[AB-DnD] Parsed:', { nodeType, actionType })
+
+    // Use Vue Flow's screenToFlowCoordinate for proper coordinate conversion
+    // that accounts for pan/zoom
+    const flowPos = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
+    console.log('[AB-DnD] Flow position:', flowPos)
+
+    const newNodePosition = createNodeAndConnect(nodeType, actionType, null, null, flowPos)
+    console.log('[AB-DnD] Node created successfully')
+
+    // Center viewport on the new node so it's always visible (especially when zoomed in)
+    if (setCenterFn && newNodePosition) {
+      setCenterFn(newNodePosition.x, newNodePosition.y, { duration: 200 })
+    }
+  } catch (e) {
+    console.error('[AB-DnD] Failed to parse drop data', e)
+  }
 }
 
 async function save() {
@@ -604,9 +665,21 @@ function handleClickOutside(e) {
 }
 
 onMounted(async () => {
+  // Get screenToFlowCoordinate from the VueFlow instance (now mounted and injected)
+  try {
+    const vf = useVueFlow()
+    if (vf && vf.screenToFlowCoordinate) {
+      screenToFlowCoordinate = vf.screenToFlowCoordinate
+    }
+    if (vf && vf.setCenter) {
+      setCenterFn = vf.setCenter
+    }
+  } catch (e) {
+    console.warn('[AB] Could not get useVueFlow instance, using fallback coordinate conversion')
+  }
+
   document.addEventListener('click', handleClickOutside)
 
-  // Load action types from registry for the "+" dropdown
   try {
     actionTypes.value = await getActionTypes()
   } catch (e) {

@@ -15,11 +15,14 @@ def get_doctype_fields(doctype):
     for f in meta.fields:
         if f.fieldtype in ("Section Break", "Column Break", "Tab Break", "Button"):
             continue
-        fields.append({
+        field_data = {
             "fieldname": f.fieldname,
             "label": f.label or f.fieldname,
             "fieldtype": f.fieldtype,
-        })
+        }
+        if f.fieldtype == "Link" and f.options:
+            field_data["options"] = f.options
+        fields.append(field_data)
     return fields
 
 

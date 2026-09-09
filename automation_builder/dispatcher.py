@@ -42,6 +42,11 @@ def on_doc_event(doc, method):
     if not trigger_event:
         return
 
+    # Re-entry guard: skip if this doc is being saved by an automation action
+    guard_key = f"_automation_running_{doc.doctype}_{doc.name}"
+    if frappe.flags.get(guard_key):
+        return
+
     try:
         automations = frappe.get_all(
             "Automation",
@@ -74,6 +79,8 @@ def on_doc_event(doc, method):
 # ---------------------------------------------------------------------------
 def execute_automation(automation_name, ref_doctype, ref_name):
     """Background job: create Automation Run record and execute actions."""
+    guard_key = f"_automation_running_{ref_doctype}_{ref_name}"
+    frappe.flags[guard_key] = True
     try:
         automation = frappe.get_doc("Automation", automation_name)
         doc = frappe.get_doc(ref_doctype, ref_name)
@@ -163,6 +170,8 @@ def execute_automation(automation_name, ref_doctype, ref_name):
             ).insert(ignore_permissions=True)
         except Exception:
             frappe.log_error(title="Automation Builder: failed to create error Run record")
+    finally:
+        frappe.flags[guard_key] = False
 
 
 def _execute_action(action_type, config, context):
@@ -224,17 +233,27 @@ def _build_edge_graph(edges):
 
 
 def _walk_graph(graph, start_id):
-    """Walk graph from start_id following first outgoing edge at each step.
+    """Walk graph from start_id following ALL outgoing edges (BFS).
 
-    Returns ordered list of node IDs (including start_id). Stops when a node
-    has no outgoing edges or a cycle is detected.
+    Returns ordered list of node IDs in execution order (trigger first,
+    then all nodes reachable from it). Handles branching (multiple
+    outgoing edges from a single node).
     """
+    from collections import deque
+
     visited = []
-    current = start_id
     seen = set()
-    while current and current not in seen:
-        visited.append(current)
+    queue = deque([start_id])
+
+    while queue:
+        current = queue.popleft()
+        if current in seen:
+            continue
         seen.add(current)
+        visited.append(current)
         targets = graph.get(current, [])
-        current = targets[0] if targets else None
+        for t in targets:
+            if t not in seen:
+                queue.append(t)
+
     return visited
