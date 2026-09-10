@@ -1,6 +1,6 @@
 ### Automation Builder
 
-n8n for frappe
+n8n using frappe
 
 ### Installation
 
