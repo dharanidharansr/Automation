@@ -233,7 +233,7 @@ The walk produces a **trace** — an ordered list of entries like `[{"type": "br
 `execute_automation()` runs as a `frappe.enqueue()` background job on the `"short"` Redis queue. This is necessary because:
 1. Action types like `create_document` call `doc.insert()` which triggers further hooks — running inline would cause recursion
 2. HTTP Request and Telegram actions involve network I/O that shouldn't block the web request
-3. The re-entry guard (`frappe.flags["_automation_running_{doctype}_{name}"]`) prevents infinite trigger loops when an action saves a document that would re-trigger the same automation
+3. The re-entry guard (`frappe.flags["_automation_running_{doctype}_{name}"]`) prevents infinite trigger loops when an action saves a document that would re-trigger the same automation (added Stage 15-16, `804264c`)
 
 ## 5. The Extensibility Model
 
@@ -276,52 +276,160 @@ A faculty reviewer might ask: "Why not create a separate `LOGIC_TYPES` registry?
 
 ### Worked Example: Adding a New Action Type
 
-Suppose you want to add a "Set Variable" action that stores a value in the execution context for later use. Here is the exact step-by-step:
+Below is the actual `http_request.py` file (verbatim, 152 lines). This is a real action type that exists in the codebase — the worked example is the real file, not a simplified fiction.
 
-**Step 1: Create `automation_builder/action_types/set_variable.py`**
+**Step 1: Create `automation_builder/action_types/http_request.py`**
 
 ```python
-"""Set Variable action type — stores a value in the execution context."""
+"""HTTP Request action type — makes an HTTP call to any URL.
+
+This module also exposes ``make_http_request()`` as a reusable helper so that
+other action types (e.g. Telegram) can issue HTTP calls without duplicating
+the request-building, error-handling, and logging logic.
+"""
+
+import json
+from urllib.parse import urlencode
+
+import frappe
+import requests as _requests
 
 from automation_builder.action_types import register_action_type
 from automation_builder.action_types._helpers import resolve_value
 
 CONFIG_SCHEMA = [
     {
-        "name": "variable_name",
+        "name": "url",
         "type": "data",
-        "label": "Variable Name",
-        "description": "Name of the variable to set.",
+        "label": "URL",
+        "description": "Full URL. Supports {{trigger.fieldname}} tokens.",
     },
     {
-        "name": "value",
-        "type": "data",
-        "label": "Value",
-        "description": "Value to store. Supports {{trigger.fieldname}} tokens.",
+        "name": "method",
+        "type": "select",
+        "label": "Method",
+        "options": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    },
+    {
+        "name": "headers",
+        "type": "field_mapping_table",
+        "label": "Headers",
+        "description": "Optional HTTP headers (key/value). Supports {{trigger.fieldname}} in values.",
+    },
+    {
+        "name": "body",
+        "type": "textarea",
+        "label": "Body",
+        "description": "Request body (sent as JSON for POST/PUT/PATCH). Supports {{trigger.fieldname}} tokens.",
     },
 ]
 
 
-def execute(context, config):
-    """Store a variable in the execution context."""
-    variable_name = config.get("variable_name", "")
-    value = resolve_value(config.get("value", ""), context)
+# ---------------------------------------------------------------------------
+# Shared helper — used by http_request.execute() and telegram.py
+# ---------------------------------------------------------------------------
+def make_http_request(method, url, headers=None, body=None, json_payload=None, timeout=30):
+    """Issue an HTTP request and return a result dict.
 
-    if not variable_name:
-        raise ValueError("No variable_name specified")
+    Args:
+        method: HTTP method string (GET, POST, ...).
+        url: Full URL.
+        headers: Optional dict of request headers.
+        body: Optional string body.  Parsed as JSON when possible.
+        json_payload: Optional dict to send as JSON body (takes precedence
+            over *body* for POST/PUT/PATCH).
+        timeout: Request timeout in seconds.
 
-    context.setdefault("variables", {})[variable_name] = value
+    Returns:
+        dict with keys: status_code, response_body (truncated), ok (bool).
+
+    Raises:
+        requests.exceptions.RequestException on connection errors.
+    """
+    headers = headers or {}
+    method = (method or "GET").upper()
+
+    kwargs = {"headers": headers, "timeout": timeout}
+
+    if method in ("POST", "PUT", "PATCH"):
+        if json_payload is not None:
+            kwargs["json"] = json_payload
+        elif body is not None:
+            # Attempt to parse as JSON; fall back to raw text
+            try:
+                kwargs["json"] = json.loads(body)
+            except (json.JSONDecodeError, TypeError):
+                kwargs["data"] = body
+
+    resp = _requests.request(method, url, **kwargs)
+
+    # Truncate response body for logging (keep first 2000 chars)
+    resp_text = resp.text[:2000] if resp.text else ""
 
     return {
-        "step_type": "set_variable",
+        "status_code": resp.status_code,
+        "response_body": resp_text,
+        "ok": resp.ok,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Action type execute
+# ---------------------------------------------------------------------------
+def execute(context, config):
+    """Make an HTTP request to the configured URL.
+
+    config format::
+
+        {
+            "url": "https://example.com/api",
+            "method": "POST",
+            "headers": [{"target_field": "Content-Type", "source_value": "application/json"}],
+            "body": '{"key": "{{trigger.lead_name}}"}'
+        }
+
+    Raises on failure — the exception propagates to the dispatcher which
+    marks the Automation Run as Failed with the real traceback.
+    """
+    url = resolve_value(config.get("url", ""), context)
+    method = config.get("method", "GET")
+    body_raw = config.get("body", "")
+
+    if not url:
+        raise ValueError("No URL specified in http_request action config")
+
+    # Resolve token placeholders in body
+    body = resolve_value(body_raw, context) if body_raw else None
+
+    # Build headers dict from field_mapping_table rows
+    raw_headers = config.get("headers", [])
+    headers = {}
+    for row in raw_headers:
+        key = resolve_value(row.get("target_field", ""), context)
+        val = resolve_value(row.get("source_value", ""), context)
+        if key:
+            headers[key] = val
+
+    result = make_http_request(method, url, headers=headers, body=body)
+
+    status_code = result["status_code"]
+    resp_preview = result["response_body"]
+
+    if not result["ok"]:
+        raise ValueError(
+            f"HTTP {method} {url} returned status {status_code}: {resp_preview}"
+        )
+
+    return {
+        "step_type": "http_request",
         "status": "Success",
-        "output": f"Set {variable_name} = {value!r}",
+        "output": f"HTTP {method} {url} → {status_code}\n{resp_preview}",
     }
 
 
 register_action_type(
-    key="set_variable",
-    label="Set Variable",
+    key="http_request",
+    label="HTTP Request",
     config_schema=CONFIG_SCHEMA,
     execute_fn=execute,
 )
@@ -332,7 +440,7 @@ register_action_type(
 Add one line at the bottom:
 
 ```python
-from automation_builder.action_types import set_variable  # noqa: E402, F401
+from automation_builder.action_types import http_request  # noqa: E402, F401
 ```
 
 That's it for the backend. The `register_action_type()` call at module load time adds the type to `ACTION_TYPES`.
@@ -345,7 +453,7 @@ The `get_action_types()` API endpoint calls `get_all_action_types()` which retur
 
 `NodePalette.vue` calls `getActionTypes()` on mount and renders all returned types under the "Actions" section (those with `node_category !== 'logic'`). The new type appears with a generic document icon and its label.
 
-**The total cost of adding this action type:** One new Python file (~30 lines), one import line in `__init__.py`. Zero changes to `dispatcher.py`, `executor.py`, `api.py`, `ConfigPanel.vue`, `ActionConfigForm.vue`, `AutomationBuilder.vue`, or `NodePalette.vue`.
+**The total cost of adding this action type:** One new Python file (the real `http_request.py` above is ~150 lines because it includes a shared `make_http_request()` helper — a minimal action type is ~30 lines), one import line in `__init__.py`. Zero changes to `dispatcher.py`, `executor.py`, `api.py`, `ConfigPanel.vue`, `ActionConfigForm.vue`, `AutomationBuilder.vue`, or `NodePalette.vue`.
 
 ### How IF/Switch Fit the Same Registry
 
@@ -488,10 +596,12 @@ All tests use `frappe.tests.IntegrationTestCase` and run against a real MariaDB 
 | Pluggable registry (add types with zero core changes) | ✅ |
 | Schema-driven config panel (generic rendering from config_schema) | ✅ |
 | Automation User role + permission gating | ✅ |
-| Sidebar node palette with drag-and-drop | ✅ |
-| Drag-to-add picker (from handle to empty canvas) | ✅ |
-| Node type picker (drag-to-empty-canvas) | ✅ |
+| Sidebar node palette with drag-and-drop | ✅* |
+| Drag-to-add picker (from handle to empty canvas) | ✅* |
+| Node type picker (drag-to-empty-canvas) | ✅* |
 | 49 automated tests (0 fail) | ✅ |
+
+\* Backend logic verified by automated test (graph roundtrip, reconnection after removal); live browser interaction not independently confirmed by a human. See Section 8 for full gaps list.
 
 ### What the Full Roadmap Includes (Not Yet Built)
 
@@ -523,9 +633,9 @@ The architecture is designed to accommodate all of these. The registry pattern m
 
 6. **Legacy fields on Automation are hidden but not removed.** The `trigger_doctype`, `trigger_event`, `condition_field`, `condition_operator`, `condition_value`, and `workflow_json` fields still exist on the Automation DocType (marked `hidden: 1`). They were migrated to `triggers` table and `graph_definition` but are kept for backward compatibility.
 
-7. **The re-entry guard uses `frappe.flags` which is per-request.** If two background jobs for the same document run simultaneously (unlikely with `"short"` queue but theoretically possible), the guard might not prevent both from executing. The guard key is `_automation_running_{doctype}_{name}`.
+7. **The re-entry guard uses `frappe.flags` which is per-request.** If two background jobs for the same document run simultaneously (unlikely with `"short"` queue but theoretically possible), the guard might not prevent both from executing. The guard key is `_automation_running_{doctype}_{name}`. Added in Stage 15-16 (`804264c`); was never reported in any progress update — discovered via source inspection during this document review.
 
-8. **Telegram mock mode is silent.** When no bot token is configured, Telegram actions return "Success" with a mock output message. There is no warning in the Automation Run log that the message was not actually sent — the mock output is the only indication.
+8. **Telegram mock mode output is clear but indistinguishable in Automation Run status.** When no bot token is configured, the `execute()` function returns `status: "Success"` with output `"MOCK MODE (no Telegram bot token configured): would have sent to chat_id=...`. The `MOCK MODE` prefix is unambiguous in the Run Step `output` field, but the Run itself is marked `Success` — there is no separate `Mocked` or `Partial` status to distinguish a real send from a mock at the Run level.
 
 9. **No undo/redo on the canvas.** The Vue Flow canvas does not implement undo/redo. Users must manually reconnect nodes if they make a mistake.
 
