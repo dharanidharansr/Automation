@@ -8,6 +8,19 @@
       </button>
     </div>
     <div v-if="!collapsed" class="ab-node-palette-items">
+      <!-- Triggers section -->
+      <div class="ab-node-palette-section">Triggers</div>
+      <div
+        class="ab-node-palette-item ab-node-palette-item--trigger"
+        draggable="true"
+        @dragstart="onDragStart($event, { key: 'trigger', label: 'Trigger', nodeCategory: 'trigger' })"
+      >
+        <span class="ab-node-palette-icon ab-node-palette-icon--trigger">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </span>
+        <span class="ab-node-palette-label">Trigger</span>
+      </div>
+
       <!-- Logic section -->
       <div class="ab-node-palette-section">Logic</div>
       <div
@@ -90,7 +103,10 @@ const actionItems = computed(() => {
 
 function onDragStart(event, item) {
   let nodeType, actionType
-  if (item.key === 'condition') {
+  if (item.key === 'trigger' || item.nodeCategory === 'trigger') {
+    nodeType = 'trigger'
+    actionType = null
+  } else if (item.key === 'condition') {
     nodeType = 'condition'
     actionType = null
   } else if (item.nodeCategory === 'logic' || item.key === 'if_condition' || item.key === 'switch_case') {

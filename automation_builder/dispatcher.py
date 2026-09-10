@@ -269,8 +269,10 @@ def execute_automation(automation_name, ref_doctype, ref_name):
 
         context = {"doc": doc, "ref_doctype": ref_doctype, "ref_name": ref_name}
 
-        # Walk graph with branching evaluation
-        step_trace = _walk_graph(graph, "trigger", context)
+        # Find the first trigger node dynamically (supports multiple triggers)
+        trigger_nodes = [n for n in graph.get("nodes", []) if n.get("type") == "trigger"]
+        start_id = trigger_nodes[0]["id"] if trigger_nodes else "trigger"
+        step_trace = _walk_graph(graph, start_id, context)
 
         any_failed = False
         step_results = []
@@ -510,7 +512,10 @@ def _extract_actions_from_graph(graph):
 
     node_map = {n["id"]: n for n in nodes}
     graph_adj = _build_edge_graph(edges)
-    ordered_ids = _walk_graph_bfs(graph_adj, "trigger")
+    # Find first trigger node dynamically
+    trigger_nodes = [n for n in nodes if n.get("type") == "trigger"]
+    start_id = trigger_nodes[0]["id"] if trigger_nodes else "trigger"
+    ordered_ids = _walk_graph_bfs(graph_adj, start_id)
 
     actions = []
     for nid in ordered_ids:

@@ -56,9 +56,9 @@
           @connect-end="onConnectEnd"
         >
           <template #node-trigger="nodeProps">
-            <div class="ab-node ab-node-trigger" :class="{ 'ab-node-selected': selectedNodeId === 'trigger' }" @click="selectNode('trigger', nodeProps.data)">
-              <Handle type="source" :position="Position.Bottom" id="trigger-out" />
-              <Handle type="source" :position="Position.Right" id="trigger-out-right" />
+            <div class="ab-node ab-node-trigger" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('trigger', nodeProps.data, nodeProps.id)">
+              <Handle type="source" :position="Position.Bottom" :id="nodeProps.id + '-out'" />
+              <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-out-right'" />
               <div class="ab-node-header">
                 <div class="ab-node-icon-wrap ab-node-icon-wrap--trigger">
                   <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
@@ -69,16 +69,20 @@
               <div class="ab-node-body">
                 <div>{{ nodeProps.data.trigger_doctype || 'Select DocType' }}</div>
                 <div class="ab-node-summary">{{ nodeProps.data.trigger_event || 'Select Event' }}</div>
+                <div v-if="nodeProps.data.conditions && nodeProps.data.conditions.length" class="ab-node-conditions-summary">
+                  <span class="ab-node-condition-badge">{{ nodeProps.data.condition_logic === 'Any must match (OR)' ? 'OR' : 'AND' }}</span>
+                  {{ nodeProps.data.conditions.length }} condition{{ nodeProps.data.conditions.length > 1 ? 's' : '' }}
+                </div>
               </div>
             </div>
           </template>
 
           <template #node-condition="nodeProps">
-            <div class="ab-node ab-node-condition" :class="{ 'ab-node-selected': selectedNodeId === 'condition' }" @click="selectNode('condition', nodeProps.data)">
-              <Handle type="target" :position="Position.Top" id="condition-in" />
-              <Handle type="target" :position="Position.Left" id="condition-in-left" />
-              <Handle type="source" :position="Position.Bottom" id="condition-out" />
-              <Handle type="source" :position="Position.Right" id="condition-out-right" />
+            <div class="ab-node ab-node-condition" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('condition', nodeProps.data, nodeProps.id)">
+              <Handle type="target" :position="Position.Top" :id="nodeProps.id + '-in'" />
+              <Handle type="target" :position="Position.Left" :id="nodeProps.id + '-in-left'" />
+              <Handle type="source" :position="Position.Bottom" :id="nodeProps.id + '-out'" />
+              <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-out-right'" />
               <div class="ab-node-header">
                 <div class="ab-node-icon-wrap ab-node-icon-wrap--condition">
                   <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -125,7 +129,7 @@
 
           <template #node-if="nodeProps">
             <div class="ab-node ab-node-if" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('if', nodeProps.data, nodeProps.id)">
-              <Handle type="target" :position="Position.Top" id="if-in" />
+              <Handle type="target" :position="Position.Top" :id="nodeProps.id + '-in'" />
               <div class="ab-node-header">
                 <div class="ab-node-icon-wrap ab-node-icon-wrap--if">
                   <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
@@ -142,16 +146,16 @@
               </div>
               <div class="ab-node-outputs">
                 <div class="ab-node-output-label ab-node-output-label--true">True</div>
-                <Handle type="source" :position="Position.Right" id="if-true" :style="{ top: '30%' }" />
+                <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-true'" :style="{ top: '30%' }" />
                 <div class="ab-node-output-label ab-node-output-label--false">False</div>
-                <Handle type="source" :position="Position.Right" id="if-false" :style="{ top: '70%' }" />
+                <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-false'" :style="{ top: '70%' }" />
               </div>
             </div>
           </template>
 
           <template #node-switch="nodeProps">
             <div class="ab-node ab-node-switch" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('switch', nodeProps.data, nodeProps.id)">
-              <Handle type="target" :position="Position.Top" id="switch-in" />
+              <Handle type="target" :position="Position.Top" :id="nodeProps.id + '-in'" />
               <div class="ab-node-header">
                 <div class="ab-node-icon-wrap ab-node-icon-wrap--switch">
                   <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
@@ -171,10 +175,10 @@
                   <div class="ab-node-output-label" :style="{ top: (20 + idx * (60 / Math.max((nodeProps.data.cases || []).length + 1, 2))) + '%' }">
                     {{ caseItem.case_value || 'Case ' + (idx + 1) }}
                   </div>
-                  <Handle type="source" :position="Position.Right" :id="'case-'+idx" :style="{ top: (20 + idx * (60 / Math.max((nodeProps.data.cases || []).length + 1, 2))) + '%' }" />
+                  <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-case-'+idx" :style="{ top: (20 + idx * (60 / Math.max((nodeProps.data.cases || []).length + 1, 2))) + '%' }" />
                 </template>
                 <div class="ab-node-output-label ab-node-output-label--default">Default</div>
-                <Handle type="source" :position="Position.Right" id="default" :style="{ top: '85%' }" />
+                <Handle type="source" :position="Position.Right" :id="nodeProps.id + '-default'" :style="{ top: '85%' }" />
               </div>
             </div>
           </template>
@@ -185,6 +189,20 @@
               <div class="ab-node-add-line"></div>
               <button class="ab-add-node-btn" @click.stop="toggleAddMenu(nodeProps.id)">+</button>
               <div v-if="showAddMenu === nodeProps.id" class="ab-add-node-menu">
+                <div class="ab-add-node-menu-section">Logic</div>
+                <button
+                  v-for="lt in logicTypes"
+                  :key="lt.key"
+                  class="ab-add-node-menu-item ab-add-node-menu-item--logic"
+                  @click.stop="addNewLogicNode(lt.key === 'if_condition' ? 'if' : 'switch')"
+                >
+                  <span class="ab-add-node-menu-item-icon ab-add-node-menu-item-icon--logic">
+                    <svg v-if="lt.key === 'if_condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
+                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+                  </span>
+                  {{ lt.label }}
+                </button>
+                <div class="ab-add-node-menu-section">Actions</div>
                 <button
                   v-for="at in actionTypes"
                   :key="at.key"
@@ -215,7 +233,8 @@
             @click="onPickerSelect(item)"
           >
             <span class="ab-type-picker-icon" :class="item.iconClass">
-              <svg v-if="item.key === 'condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <svg v-if="item.key === 'trigger'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              <svg v-else-if="item.key === 'condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               <svg v-else-if="item.key === 'if_condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
               <svg v-else-if="item.key === 'switch_case'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
               <svg v-else-if="item.key === 'send_email'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
@@ -271,6 +290,9 @@ const status = ref('Draft')
 const saving = ref(false)
 const showAddMenu = ref(null)
 const actionTypes = ref([])
+const logicTypes = computed(() => {
+  return actionTypes.value.filter(at => at.node_category === 'logic')
+})
 
 // Type picker state (for drag-to-empty-canvas)
 const pickerVisible = ref(false)
@@ -402,9 +424,10 @@ const pickerItems = computed(() => {
 
   if (sourceNode.type === 'trigger') {
     return [
-      { key: 'condition', label: 'Condition', iconClass: 'ab-type-picker-icon--condition' },
-      { key: 'if_condition', label: 'IF', iconClass: 'ab-type-picker-icon--logic' },
-      { key: 'switch_case', label: 'Switch', iconClass: 'ab-type-picker-icon--logic' },
+      { key: 'trigger', label: 'Another Trigger', iconClass: 'ab-type-picker-icon--trigger', nodeType: 'trigger' },
+      { key: 'condition', label: 'Condition', iconClass: 'ab-type-picker-icon--condition', nodeType: 'condition' },
+      { key: 'if_condition', label: 'IF', iconClass: 'ab-type-picker-icon--logic', nodeType: 'if' },
+      { key: 'switch_case', label: 'Switch', iconClass: 'ab-type-picker-icon--logic', nodeType: 'switch' },
     ]
   }
 
@@ -415,6 +438,8 @@ const pickerItems = computed(() => {
       key: at.key,
       label: at.label,
       iconClass: at.node_category === 'logic' ? 'ab-type-picker-icon--logic' : 'ab-type-picker-icon--action',
+      nodeType: at.node_category === 'logic' ? (at.key === 'if_condition' ? 'if' : 'switch') : 'action',
+      actionType: at.node_category !== 'logic' ? at.key : null,
     })
   }
   return items
@@ -510,6 +535,14 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
   if (nodeType === 'condition') {
     newNodeId = nodes.value.some(n => n.id === 'condition') ? `condition-${Date.now()}` : 'condition'
     newNodeData = { condition_field: '', condition_operator: '=', condition_value: '' }
+  } else if (nodeType === 'trigger') {
+    newNodeId = `trigger-${Date.now()}`
+    newNodeData = {
+      trigger_doctype: '',
+      trigger_event: 'On Update',
+      condition_logic: 'All must match',
+      conditions: [],
+    }
   } else if (nodeType === 'if') {
     newNodeId = `if-${Date.now()}`
     newNodeData = { field_to_check: '', operator: '=', value: '' }
@@ -556,10 +589,7 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
         source: sourceNodeId,
         target: newNodeId,
         sourceHandle: sourceHandleId,
-        targetHandle: nodeType === 'condition' ? 'condition-in'
-          : nodeType === 'if' ? 'if-in'
-          : nodeType === 'switch' ? 'switch-in'
-          : `${newNodeId}-in`,
+        targetHandle: `${newNodeId}-in`,
         type: 'smoothstep',
         markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
       })
@@ -584,6 +614,22 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
     }
   }
 
+  // If adding a trigger node from sidebar, connect it to the first action/condition node
+  if (nodeType === 'trigger' && !sourceNodeId) {
+    const firstAction = nodes.value.find(n => n.type === 'action' || n.type === 'condition')
+    if (firstAction) {
+      edges.value.push({
+        id: `e-${newNodeId}-${firstAction.id}`,
+        source: newNodeId,
+        target: firstAction.id,
+        sourceHandle: `${newNodeId}-out`,
+        targetHandle: `${firstAction.id}-in`,
+        type: 'smoothstep',
+        markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
+      })
+    }
+  }
+
   return newNodePosition
 }
 
@@ -593,6 +639,15 @@ function addNewAction(actionType) {
   const sourceHandleId = lastAction ? `${lastAction.id}-out` : 'condition-out'
 
   createNodeAndConnect('action', actionType, sourceNodeId, sourceHandleId)
+  showAddMenu.value = null
+}
+
+function addNewLogicNode(logicType) {
+  const lastNode = [...nodes.value].filter(n => n.type === 'action' || n.type === 'if' || n.type === 'switch').pop()
+  const sourceNodeId = lastNode?.id || 'condition'
+  const sourceHandleId = lastNode ? `${lastNode.id}-out` : 'condition-out'
+
+  createNodeAndConnect(logicType, null, sourceNodeId, sourceHandleId)
   showAddMenu.value = null
 }
 
@@ -661,11 +716,11 @@ function onConnectStart(params) {
 }
 
 function onPickerSelect(item) {
-  const isLogicType = item.key === 'if_condition' || item.key === 'switch_case'
-  const isCondition = item.key === 'condition'
+  const nodeType = item.nodeType || 'action'
+  const actionType = item.actionType || null
   createNodeAndConnect(
-    isCondition ? 'condition' : isLogicType ? (item.key === 'if_condition' ? 'if' : 'switch') : 'action',
-    isCondition || isLogicType ? null : item.key,
+    nodeType,
+    actionType,
     pickerSourceNodeId.value,
     pickerSourceHandleId.value,
     null,
@@ -720,9 +775,6 @@ async function save() {
   }
   saving.value = true
   try {
-    const trigger = nodes.value.find(n => n.id === 'trigger')
-    const condition = nodes.value.find(n => n.id === 'condition')
-
     const graphDefinition = JSON.stringify({
       nodes: nodes.value
         .filter(n => n.id !== 'add-trigger')
@@ -730,14 +782,16 @@ async function save() {
       edges: edges.value.filter(e => e.source !== 'add-trigger' && e.target !== 'add-trigger'),
     })
 
-    // Build triggers array from trigger node data
+    // Build triggers array from ALL trigger nodes on the canvas
     const triggers = []
-    if (trigger?.data) {
-      // Check for multi-trigger format (trigger_rows array)
+    const triggerNodes = nodes.value.filter(n => n.type === 'trigger')
+    for (const trigger of triggerNodes) {
+      if (!trigger.data?.trigger_doctype) continue
+      const conditions = []
+      // Support multi-trigger format (trigger_rows array in config panel)
       if (trigger.data.trigger_rows && trigger.data.trigger_rows.length) {
         for (const triggerRow of trigger.data.trigger_rows) {
           if (!triggerRow.trigger_doctype) continue
-          const conditions = []
           for (const cond of (triggerRow.conditions || [])) {
             if (cond.condition_field) {
               conditions.push({
@@ -754,35 +808,22 @@ async function save() {
             conditions: conditions,
           })
         }
-      } else if (trigger.data.trigger_doctype) {
-        // Legacy single-trigger format
-        const conditions = []
-        if (trigger.data.conditions && trigger.data.conditions.length) {
-          for (const cond of trigger.data.conditions) {
-            if (cond.condition_field) {
-              conditions.push({
-                condition_field: cond.condition_field,
-                condition_operator: cond.condition_operator || '=',
-                condition_value: cond.condition_value || '',
-              })
-            }
+      } else {
+        // Single trigger node format (direct data on node)
+        for (const cond of (trigger.data.conditions || [])) {
+          if (cond.condition_field) {
+            conditions.push({
+              condition_field: cond.condition_field,
+              condition_operator: cond.condition_operator || '=',
+              condition_value: cond.condition_value || '',
+            })
           }
-        } else if (condition?.data?.condition_field) {
-          conditions.push({
-            condition_field: condition.data.condition_field,
-            condition_operator: condition.data.condition_operator || '=',
-            condition_value: condition.data.condition_value || '',
-          })
         }
-
         triggers.push({
           trigger_doctype: trigger.data.trigger_doctype,
           trigger_event: trigger.data.trigger_event || 'On Update',
           condition_logic: trigger.data.condition_logic || 'All must match',
           conditions: conditions,
-          condition_field: condition?.data?.condition_field || '',
-          condition_operator: condition?.data?.condition_operator || '=',
-          condition_value: condition?.data?.condition_value || '',
         })
       }
     }
@@ -872,23 +913,35 @@ onMounted(async () => {
             }))
           }
 
-          // Load trigger data from API response into the trigger node
-          // (graph_definition JSON doesn't store conditions — they live in the DB)
-          const trigger = nodes.value.find(n => n.id === 'trigger')
-          if (trigger && auto.triggers && auto.triggers.length) {
-            // Convert triggers array to trigger_rows format for multi-trigger support
-            trigger.data.trigger_rows = auto.triggers.map(t => ({
-              trigger_doctype: t.trigger_doctype || '',
-              trigger_event: t.trigger_event || 'On Update',
-              condition_logic: t.condition_logic || 'All must match',
-              conditions: t.conditions || [],
-            }))
-            // Also set legacy flat fields for backward compat
-            const firstTrigger = auto.triggers[0]
-            trigger.data.trigger_doctype = trigger.data.trigger_doctype || firstTrigger.trigger_doctype || ''
-            trigger.data.trigger_event = trigger.data.trigger_event || firstTrigger.trigger_event || 'On Update'
-            trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
-            trigger.data.conditions = firstTrigger.conditions || []
+          // Load trigger data from API response into trigger nodes
+          // (graph_definition JSON stores positions but conditions live in the DB triggers table)
+          if (auto.triggers && auto.triggers.length) {
+            const triggerNodes = nodes.value.filter(n => n.type === 'trigger')
+            if (triggerNodes.length > 1) {
+              // Multiple trigger nodes in graph — match by index
+              for (let i = 0; i < triggerNodes.length && i < auto.triggers.length; i++) {
+                const t = auto.triggers[i]
+                triggerNodes[i].data.trigger_doctype = t.trigger_doctype || ''
+                triggerNodes[i].data.trigger_event = t.trigger_event || 'On Update'
+                triggerNodes[i].data.condition_logic = t.condition_logic || 'All must match'
+                triggerNodes[i].data.conditions = t.conditions || []
+              }
+            } else if (triggerNodes.length === 1) {
+              // Single trigger node — load all triggers as trigger_rows for multi-trigger config
+              const trigger = triggerNodes[0]
+              trigger.data.trigger_rows = auto.triggers.map(t => ({
+                trigger_doctype: t.trigger_doctype || '',
+                trigger_event: t.trigger_event || 'On Update',
+                condition_logic: t.condition_logic || 'All must match',
+                conditions: t.conditions || [],
+              }))
+              // Also set legacy flat fields for backward compat
+              const firstTrigger = auto.triggers[0]
+              trigger.data.trigger_doctype = trigger.data.trigger_doctype || firstTrigger.trigger_doctype || ''
+              trigger.data.trigger_event = trigger.data.trigger_event || firstTrigger.trigger_event || 'On Update'
+              trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
+              trigger.data.conditions = firstTrigger.conditions || []
+            }
           }
 
           const lastAction = [...nodes.value].filter(n => n.type === 'action').pop()
@@ -913,30 +966,61 @@ onMounted(async () => {
           console.error('Failed to parse graph_definition', e)
         }
       } else if (auto.triggers && auto.triggers.length) {
-        // Fallback: populate from triggers table
-        const trigger = nodes.value.find(n => n.id === 'trigger')
-        const condition = nodes.value.find(n => n.id === 'condition')
-        if (trigger) {
-          // Convert triggers array to trigger_rows format
-          trigger.data.trigger_rows = auto.triggers.map(t => ({
+        // Fallback: no graph_definition, populate from triggers table
+        // Create multiple trigger nodes from the triggers array
+        const defaultTrigger = nodes.value.find(n => n.id === 'trigger')
+        if (defaultTrigger && auto.triggers.length === 1) {
+          // Single trigger — use the default node
+          const t = auto.triggers[0]
+          defaultTrigger.data.trigger_rows = [{
             trigger_doctype: t.trigger_doctype || '',
             trigger_event: t.trigger_event || 'On Update',
             condition_logic: t.condition_logic || 'All must match',
             conditions: t.conditions || [],
-          }))
-          // Also set legacy flat fields
-          const firstTrigger = auto.triggers[0]
-          trigger.data.trigger_doctype = firstTrigger.trigger_doctype || ''
-          trigger.data.trigger_event = firstTrigger.trigger_event || 'On Update'
-          trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
-          trigger.data.conditions = firstTrigger.conditions || []
-        }
-        // Also populate legacy graph condition node if it exists
-        if (condition) {
-          const firstTrigger = auto.triggers[0]
-          condition.data.condition_field = firstTrigger.condition_field || ''
-          condition.data.condition_operator = firstTrigger.condition_operator || '='
-          condition.data.condition_value = firstTrigger.condition_value || ''
+          }]
+          defaultTrigger.data.trigger_doctype = t.trigger_doctype || ''
+          defaultTrigger.data.trigger_event = t.trigger_event || 'On Update'
+          defaultTrigger.data.condition_logic = t.condition_logic || 'All must match'
+          defaultTrigger.data.conditions = t.conditions || []
+        } else if (auto.triggers.length > 1) {
+          // Multiple triggers — replace default with multiple trigger nodes
+          const triggerNodes = []
+          let yPos = 50
+          for (let i = 0; i < auto.triggers.length; i++) {
+            const t = auto.triggers[i]
+            const id = i === 0 ? 'trigger' : `trigger-${Date.now()}-${i}`
+            const node = {
+              id,
+              type: 'trigger',
+              position: { x: 250, y: yPos },
+              data: {
+                trigger_doctype: t.trigger_doctype || '',
+                trigger_event: t.trigger_event || 'On Update',
+                condition_logic: t.condition_logic || 'All must match',
+                conditions: t.conditions || [],
+              },
+            }
+            triggerNodes.push(node)
+            yPos += 170
+          }
+          // Remove default trigger, add new ones
+          nodes.value = nodes.value.filter(n => n.id !== 'trigger')
+          nodes.value.unshift(...triggerNodes)
+          // Connect all triggers to the first action/condition node
+          const firstTarget = nodes.value.find(n => n.type === 'action' || n.type === 'condition')
+          if (firstTarget) {
+            for (const tn of triggerNodes) {
+              edges.value.push({
+                id: `e-${tn.id}-${firstTarget.id}`,
+                source: tn.id,
+                target: firstTarget.id,
+                sourceHandle: `${tn.id}-out`,
+                targetHandle: `${firstTarget.id}-in`,
+                type: 'smoothstep',
+                markerEnd: { type: 'arrowclosed', color: 'var(--gray-500)' },
+              })
+            }
+          }
         }
       }
     } catch (e) {

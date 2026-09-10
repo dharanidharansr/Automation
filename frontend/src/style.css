@@ -557,6 +557,29 @@
   text-overflow: ellipsis;
 }
 
+.ab-node-conditions-summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ab-node-condition-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  height: 16px;
+  border-radius: var(--border-radius-full);
+  background: var(--surface-amber-1);
+  color: var(--ink-amber-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
 /* Selected/focused node state */
 .ab-node-selected {
   border-color: var(--blue-500) !important;
@@ -771,6 +794,21 @@
 .ab-add-node-menu-item-icon--action {
   background: var(--bg-green);
   color: var(--green-600);
+}
+
+.ab-add-node-menu-item-icon--logic {
+  background: var(--bg-purple);
+  color: var(--purple-500);
+}
+
+.ab-add-node-menu-section {
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 10px 2px;
+  user-select: none;
 }
 
 /* === Config Panel === */
@@ -1346,6 +1384,11 @@
   color: var(--blue-600);
 }
 
+.ab-type-picker-icon--trigger {
+  background: var(--bg-blue);
+  color: var(--blue-500);
+}
+
 .ab-type-picker-icon--action {
   background: var(--yellow-100);
   color: var(--yellow-600);
@@ -1485,6 +1528,11 @@
 .ab-node-palette-icon--condition {
   background: var(--bg-orange);
   color: var(--orange-500);
+}
+
+.ab-node-palette-icon--trigger {
+  background: var(--bg-blue);
+  color: var(--blue-500);
 }
 
 .ab-node-palette-icon--action {

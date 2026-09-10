@@ -199,10 +199,10 @@
       />
 
       <button
-        v-if="nodeType === 'action'"
+        v-if="nodeType === 'action' || nodeType === 'if' || nodeType === 'switch'"
         class="ab-btn ab-btn-danger ab-btn-sm"
         @click="$emit('remove-action', nodeId)"
-      >Remove Action</button>
+      >Remove {{ nodeType === 'action' ? 'Action' : nodeType === 'if' ? 'IF' : 'Switch' }}</button>
     </template>
 
     <div class="ab-config-actions">
@@ -228,6 +228,7 @@ const emit = defineEmits(['update', 'close', 'add-action', 'remove-action'])
 
 const local = ref({ ...props.nodeData })
 const doctypes = ref([])
+const fields = ref([])
 const triggerFields = ref([])  // Array of field arrays, one per trigger row
 const actionTypes = ref([])
 
