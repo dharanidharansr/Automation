@@ -435,6 +435,91 @@
   border-left: 3px solid var(--green-600);
 }
 
+/* IF: purple tint (Core Logic category) */
+.ab-node-if .ab-node-title {
+  color: var(--purple-500);
+}
+
+.ab-node-if {
+  border-left: 3px solid var(--purple-500);
+}
+
+/* Switch: purple tint (Core Logic category) */
+.ab-node-switch .ab-node-title {
+  color: var(--purple-500);
+}
+
+.ab-node-switch {
+  border-left: 3px solid var(--purple-500);
+}
+
+/* Node outputs section for branching nodes */
+.ab-node-outputs {
+  position: relative;
+  padding: 4px 0;
+}
+
+.ab-node-output-label {
+  position: absolute;
+  right: -30px;
+  font-size: 10px;
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  transform: translateY(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.ab-node-output-label--true {
+  color: var(--green-600);
+}
+
+.ab-node-output-label--false {
+  color: var(--red-500);
+}
+
+.ab-node-output-label--default {
+  color: var(--gray-500);
+}
+
+/* IF/Switch handle colors */
+.ab-node-if .vue-flow__handle {
+  background: var(--purple-400) !important;
+  border-color: var(--card-bg) !important;
+}
+
+.ab-node-if .vue-flow__handle:hover {
+  background: var(--purple-500) !important;
+}
+
+.ab-node-switch .vue-flow__handle {
+  background: var(--purple-400) !important;
+  border-color: var(--card-bg) !important;
+}
+
+.ab-node-switch .vue-flow__handle:hover {
+  background: var(--purple-500) !important;
+}
+
+/* Dark mode handle colors for IF/Switch */
+[data-theme="dark"] .ab-node-if .vue-flow__handle {
+  background: var(--purple-400) !important;
+}
+
+[data-theme="dark"] .ab-node-switch .vue-flow__handle {
+  background: var(--purple-400) !important;
+}
+
+/* IF config hint */
+.ab-config-if-hint {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-purple);
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
 .ab-node-title {
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
@@ -1135,6 +1220,11 @@
   color: var(--yellow-600);
 }
 
+.ab-type-picker-icon--logic {
+  background: var(--bg-purple);
+  color: var(--purple-500);
+}
+
 .ab-type-picker-label {
   font-weight: var(--weight-medium);
 }
@@ -1157,6 +1247,11 @@
 [data-theme="dark"] .ab-type-picker-icon--action {
   background: var(--yellow-900);
   color: var(--yellow-400);
+}
+
+[data-theme="dark"] .ab-type-picker-icon--logic {
+  background: var(--purple-900);
+  color: var(--purple-400);
 }
 
 /* Handle cursor: show not-allowed when source already connected (linear-only) */
@@ -1264,6 +1359,21 @@
 .ab-node-palette-icon--action {
   background: var(--bg-green);
   color: var(--green-600);
+}
+
+.ab-node-palette-icon--logic {
+  background: var(--bg-purple);
+  color: var(--purple-500);
+}
+
+.ab-node-palette-section {
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 12px 4px;
+  user-select: none;
 }
 
 .ab-node-palette-label {

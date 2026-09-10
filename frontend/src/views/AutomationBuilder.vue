@@ -123,6 +123,62 @@
             </div>
           </template>
 
+          <template #node-if="nodeProps">
+            <div class="ab-node ab-node-if" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('if', nodeProps.data, nodeProps.id)">
+              <Handle type="target" :position="Position.Top" id="if-in" />
+              <div class="ab-node-header">
+                <div class="ab-node-icon-wrap ab-node-icon-wrap--if">
+                  <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
+                </div>
+                <span class="ab-node-title">IF</span>
+              </div>
+              <div class="ab-node-divider"></div>
+              <div class="ab-node-body">
+                <span v-if="!nodeProps.data.field_to_check" class="ab-node-placeholder">Click to configure</span>
+                <template v-else>
+                  <div>{{ nodeProps.data.field_to_check }} {{ nodeProps.data.operator }} {{ nodeProps.data.value }}</div>
+                  <div class="ab-node-summary">Evaluates condition</div>
+                </template>
+              </div>
+              <div class="ab-node-outputs">
+                <div class="ab-node-output-label ab-node-output-label--true">True</div>
+                <Handle type="source" :position="Position.Right" id="if-true" :style="{ top: '30%' }" />
+                <div class="ab-node-output-label ab-node-output-label--false">False</div>
+                <Handle type="source" :position="Position.Right" id="if-false" :style="{ top: '70%' }" />
+              </div>
+            </div>
+          </template>
+
+          <template #node-switch="nodeProps">
+            <div class="ab-node ab-node-switch" :class="{ 'ab-node-selected': selectedNodeId === nodeProps.id }" @click="selectNode('switch', nodeProps.data, nodeProps.id)">
+              <Handle type="target" :position="Position.Top" id="switch-in" />
+              <div class="ab-node-header">
+                <div class="ab-node-icon-wrap ab-node-icon-wrap--switch">
+                  <svg class="ab-node-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+                </div>
+                <span class="ab-node-title">Switch</span>
+              </div>
+              <div class="ab-node-divider"></div>
+              <div class="ab-node-body">
+                <span v-if="!nodeProps.data.field_to_check" class="ab-node-placeholder">Click to configure</span>
+                <template v-else>
+                  <div>{{ nodeProps.data.field_to_check }}</div>
+                  <div class="ab-node-summary">{{ (nodeProps.data.cases || []).length }} cases + default</div>
+                </template>
+              </div>
+              <div class="ab-node-outputs">
+                <template v-for="(caseItem, idx) in (nodeProps.data.cases || [])" :key="'case-'+idx">
+                  <div class="ab-node-output-label" :style="{ top: (20 + idx * (60 / Math.max((nodeProps.data.cases || []).length + 1, 2))) + '%' }">
+                    {{ caseItem.case_value || 'Case ' + (idx + 1) }}
+                  </div>
+                  <Handle type="source" :position="Position.Right" :id="'case-'+idx" :style="{ top: (20 + idx * (60 / Math.max((nodeProps.data.cases || []).length + 1, 2))) + '%' }" />
+                </template>
+                <div class="ab-node-output-label ab-node-output-label--default">Default</div>
+                <Handle type="source" :position="Position.Right" id="default" :style="{ top: '85%' }" />
+              </div>
+            </div>
+          </template>
+
           <template #node-add-trigger="nodeProps">
             <div class="ab-node-add-wrapper">
               <Handle type="target" :position="Position.Top" id="add-trigger-in" />
@@ -160,6 +216,8 @@
           >
             <span class="ab-type-picker-icon" :class="item.iconClass">
               <svg v-if="item.key === 'condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              <svg v-else-if="item.key === 'if_condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
+              <svg v-else-if="item.key === 'switch_case'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
               <svg v-else-if="item.key === 'send_email'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
               <svg v-else-if="item.key === 'http_request'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
               <svg v-else-if="item.key === 'telegram'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
@@ -343,15 +401,23 @@ const pickerItems = computed(() => {
   if (!sourceNode) return []
 
   if (sourceNode.type === 'trigger') {
-    return [{ key: 'condition', label: 'Condition', iconClass: 'ab-type-picker-icon--condition' }]
+    return [
+      { key: 'condition', label: 'Condition', iconClass: 'ab-type-picker-icon--condition' },
+      { key: 'if_condition', label: 'IF', iconClass: 'ab-type-picker-icon--logic' },
+      { key: 'switch_case', label: 'Switch', iconClass: 'ab-type-picker-icon--logic' },
+    ]
   }
 
-  // Condition or Action: show all registered action types
-  return actionTypes.value.map(at => ({
-    key: at.key,
-    label: at.label,
-    iconClass: 'ab-type-picker-icon--action',
-  }))
+  // Condition, IF, Switch, or Action: show all action types + logic types
+  const items = []
+  for (const at of actionTypes.value) {
+    items.push({
+      key: at.key,
+      label: at.label,
+      iconClass: at.node_category === 'logic' ? 'ab-type-picker-icon--logic' : 'ab-type-picker-icon--action',
+    })
+  }
+  return items
 })
 
 function actionLabel(data) {
@@ -444,6 +510,12 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
   if (nodeType === 'condition') {
     newNodeId = nodes.value.some(n => n.id === 'condition') ? `condition-${Date.now()}` : 'condition'
     newNodeData = { condition_field: '', condition_operator: '=', condition_value: '' }
+  } else if (nodeType === 'if') {
+    newNodeId = `if-${Date.now()}`
+    newNodeData = { field_to_check: '', operator: '=', value: '' }
+  } else if (nodeType === 'switch') {
+    newNodeId = `switch-${Date.now()}`
+    newNodeData = { field_to_check: '', cases: [{ case_value: '' }] }
   } else {
     newNodeId = `action-${Date.now()}`
     const at = actionTypes.value.find(a => a.key === actionType)
@@ -484,7 +556,10 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
         source: sourceNodeId,
         target: newNodeId,
         sourceHandle: sourceHandleId,
-        targetHandle: nodeType === 'condition' ? 'condition-in' : `${newNodeId}-in`,
+        targetHandle: nodeType === 'condition' ? 'condition-in'
+          : nodeType === 'if' ? 'if-in'
+          : nodeType === 'switch' ? 'switch-in'
+          : `${newNodeId}-in`,
         type: 'smoothstep',
         markerEnd: { type: 'arrowclosed', color: 'var(--gray-400)' },
       })
@@ -492,6 +567,7 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
   }
 
   // If adding an action, also connect it to the add-trigger button (if it exists)
+  // Skip for branching nodes (IF/Switch) — user connects manually from handles
   if (nodeType === 'action') {
     const addTriggerNode = nodes.value.find(n => n.id === 'add-trigger')
     if (addTriggerNode) {
@@ -585,9 +661,11 @@ function onConnectStart(params) {
 }
 
 function onPickerSelect(item) {
+  const isLogicType = item.key === 'if_condition' || item.key === 'switch_case'
+  const isCondition = item.key === 'condition'
   createNodeAndConnect(
-    item.key === 'condition' ? 'condition' : 'action',
-    item.key === 'condition' ? null : item.key,
+    isCondition ? 'condition' : isLogicType ? (item.key === 'if_condition' ? 'if' : 'switch') : 'action',
+    isCondition || isLogicType ? null : item.key,
     pickerSourceNodeId.value,
     pickerSourceHandleId.value,
     null,

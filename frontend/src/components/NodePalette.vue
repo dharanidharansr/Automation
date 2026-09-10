@@ -8,16 +8,46 @@
       </button>
     </div>
     <div v-if="!collapsed" class="ab-node-palette-items">
+      <!-- Logic section -->
+      <div class="ab-node-palette-section">Logic</div>
       <div
-        v-for="item in paletteItems"
+        v-for="item in logicItems"
         :key="item.key"
         class="ab-node-palette-item"
         draggable="true"
         @dragstart="onDragStart($event, item)"
       >
         <span class="ab-node-palette-icon" :class="item.iconClass">
-          <svg v-if="item.key === 'condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-          <svg v-else-if="item.key === 'send_email'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          <svg v-if="item.key === 'if_condition'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/></svg>
+          <svg v-else-if="item.key === 'switch_case'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+        </span>
+        <span class="ab-node-palette-label">{{ item.label }}</span>
+      </div>
+
+      <!-- Frappe section -->
+      <div class="ab-node-palette-section">Frappe</div>
+      <div
+        class="ab-node-palette-item"
+        draggable="true"
+        @dragstart="onDragStart($event, { key: 'condition', label: 'Condition', nodeCategory: 'condition' })"
+      >
+        <span class="ab-node-palette-icon ab-node-palette-icon--condition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        </span>
+        <span class="ab-node-palette-label">Condition</span>
+      </div>
+
+      <!-- Actions section -->
+      <div class="ab-node-palette-section">Actions</div>
+      <div
+        v-for="item in actionItems"
+        :key="item.key"
+        class="ab-node-palette-item"
+        draggable="true"
+        @dragstart="onDragStart($event, item)"
+      >
+        <span class="ab-node-palette-icon ab-node-palette-icon--action">
+          <svg v-if="item.key === 'send_email'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
           <svg v-else-if="item.key === 'http_request'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           <svg v-else-if="item.key === 'telegram'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
           <svg v-else-if="item.key === 'update_field'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
@@ -38,29 +68,43 @@ const props = defineProps({
 
 const collapsed = ref(false)
 
-const paletteItems = computed(() => {
-  const items = [
-    { key: 'condition', label: 'Condition', iconClass: 'ab-node-palette-icon--condition' },
-  ]
-  for (const at of props.actionTypes) {
-    items.push({
+const logicItems = computed(() => {
+  return props.actionTypes
+    .filter(at => at.node_category === 'logic')
+    .map(at => ({
       key: at.key,
       label: at.label,
-      iconClass: 'ab-node-palette-icon--action',
-    })
-  }
-  return items
+      nodeCategory: 'logic',
+    }))
+})
+
+const actionItems = computed(() => {
+  return props.actionTypes
+    .filter(at => at.node_category !== 'logic')
+    .map(at => ({
+      key: at.key,
+      label: at.label,
+      nodeCategory: 'action',
+    }))
 })
 
 function onDragStart(event, item) {
-  const payload = JSON.stringify({
-    nodeType: item.key === 'condition' ? 'condition' : 'action',
-    actionType: item.key === 'condition' ? null : item.key,
-  })
+  let nodeType, actionType
+  if (item.key === 'condition') {
+    nodeType = 'condition'
+    actionType = null
+  } else if (item.nodeCategory === 'logic' || item.key === 'if_condition' || item.key === 'switch_case') {
+    nodeType = item.key === 'if_condition' ? 'if' : 'switch'
+    actionType = null
+  } else {
+    nodeType = 'action'
+    actionType = item.key
+  }
+
+  const payload = JSON.stringify({ nodeType, actionType })
   console.log('[AB-DnD] dragstart fired, setting data:', payload)
   event.dataTransfer.setData('application/automation-builder-node', payload)
   event.dataTransfer.effectAllowed = 'move'
-  // Also set text/plain as a fallback — some browsers require this
   event.dataTransfer.setData('text/plain', payload)
 }
 </script>

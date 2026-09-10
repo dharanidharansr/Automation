@@ -1749,3 +1749,172 @@ enqueued_calls = [
 - `automation_builder/frontend/src/style.css` — **UPDATED** (all 5 visual fixes)
 - `automation_builder/public/css/style.css` — **REBUILT** (compiled output)
 - `automation_builder/public/js/index.js` — **REBUILT** (compiled output)
+
+---
+
+## Stage 18 — IF/Switch branching nodes — 2026-09-10
+
+### Backend branching model
+
+**Design decision: Extended existing `action_types` registry with `node_category` field.**
+
+Justification:
+- Single lookup path through `get_action_type()` works for both actions and logic types
+- Frontend already uses `getActionTypes()` to populate the palette — extending this same endpoint means zero new API calls
+- The distinction is semantic, not structural: both logic types and action types have `config_schema`, both appear in the palette
+- Adding `node_category: "logic"` plus `evaluate_branch` function to the same registry dict is cleaner than maintaining a parallel `LOGIC_TYPES` dict
+
+**Registry extension:**
+```python
+register_action_type(
+    key="if_condition",
+    label="IF",
+    config_schema=CONFIG_SCHEMA,
+    node_category="logic",          # NEW: "action" or "logic"
+    output_handles=OUTPUT_HANDLES,   # NEW: static list or "dynamic"
+    evaluate_branch=evaluate_branch, # NEW: (config, context) -> (handle, log_msg)
+)
+```
+
+**IF logic type (`action_types/if_condition.py`):**
+- Config: `field_to_check`, `operator` (=, !=, >, <, >=, <=), `value`
+- Two fixed output handles: `if-true`, `if-false`
+- `evaluate_branch()`: evaluates condition against trigger document, returns handle + human-readable log message
+- Reuses same `OPERATORS` dict as trigger condition evaluation
+
+**Switch logic type (`action_types/switch_case.py`):**
+- Config: `field_to_check`, `cases` (list of `{case_value}`)
+- Dynamic output handles: `case-0`, `case-1`, ..., `default`
+- `get_output_handles(config)`: returns handles based on configured cases
+- `evaluate_branch()`: matches field value against cases, falls back to `default`
+
+**Graph-walking executor update (`dispatcher.py`):**
+
+The old `_walk_graph()` did BFS following ALL outgoing edges (branching-unaware). The new version:
+
+```python
+def _walk_graph(graph, start_id, context=None):
+    """Walk graph, evaluating branching nodes if context is provided."""
+    # Returns list of trace entries: [{"type": "branch"|"action", ...}]
+```
+
+Key changes:
+- When `context` is None (structural walk): follows first outgoing edge (for UI layout)
+- When `context` is provided (execution): evaluates IF/Switch nodes, follows only the matching branch
+- Returns a trace preserving execution order (branch decisions interleaved with actions)
+
+**Automation Run Step logging:**
+
+New child DocType `Automation Run Step` under `Automation Run`:
+- `node_id`: graph node ID
+- `node_type`: trigger/condition/action/if/switch
+- `step_type`: action type key or "if"/"switch"
+- `status`: Success/Failed/Skipped
+- `branch_taken`: for branching nodes: which handle was followed
+- `output`: step result or branch decision log
+- `error`: error message if failed
+
+Created via DocType JSON + `bench migrate` + manual ALTER TABLE (Fappe didn't auto-sync the new Table field).
+
+**Backward compatibility:**
+- Old `_walk_graph_bfs()` kept as legacy helper for tests using adjacency-list format
+- Old tests updated to import `_walk_graph_bfs` instead of `_walk_graph`
+- `_extract_actions_from_graph()` kept for structural graph walks (save/load validation)
+
+### Canvas: multi-handle rendering, dynamic Switch handles, connection rules
+
+**IF node template (`AutomationBuilder.vue`):**
+- Two output handles on right side, positioned at 30% and 70% vertical offset
+- Labels "True" (green) and "False" (red) rendered as absolute-positioned text
+- Purple accent color (`--purple-500`) for title and left border
+
+**Switch node template (`AutomationBuilder.vue`):**
+- Dynamic handles rendered with `v-for` over `nodeProps.data.cases`
+- Handle positions calculated dynamically: `(20 + idx * (60 / (cases.length + 1))) %`
+- Fixed "Default" handle at 85% vertical offset
+- Labels show case values (or "Case N" if empty)
+- Purple accent color matching IF node
+
+**Node Palette (`NodePalette.vue`):**
+- Three visual sections: **Logic** (IF, Switch), **Frappe** (Condition), **Actions** (all action types)
+- Section headers: 10px uppercase, `--text-light` color
+- Logic items use purple icon background (`--bg-purple`)
+- Drag payload correctly sets `nodeType: 'if'` or `'switch'` for IF/Switch items
+
+**Drag-to-add picker:**
+- IF and Switch appear in picker when dragging from Trigger node
+- All action types + logic types appear when dragging from Condition/IF/Switch/Action nodes
+- SVG icons for IF (split arrow) and Switch (three bars) added to picker template
+
+**Config Panel (`ConfigPanel.vue`):**
+- IF config: field dropdown (populated from trigger doctype), operator select, value input with token hint
+- Switch config: field dropdown, dynamic case list with add/remove, case value inputs
+- Both use existing `fields` ref populated via `getDoctypeFields(triggerDoctype)`
+- `addCase()` / `removeCase()` / `updateCase()` methods for dynamic case management
+
+**Connection rules:**
+- Single-connection-per-source-handle rule (already existed) works for IF/Switch handles
+- `isValidConnection()` correctly rejects duplicate outgoing edges from same handle
+- Each IF handle (if-true, if-false) can only connect to one target
+- Each Switch handle (case-0, case-1, default) can only connect to one target
+
+**Accent color scheme:**
+- Trigger: Blue (`--blue-500`)
+- Condition: Amber (`--orange-500`)
+- Action: Green (`--green-600`)
+- **Logic (IF/Switch): Purple (`--purple-500`)** — new, distinct from existing colors
+
+### Verification
+
+**IF branch test — Trigger → Condition → IF → [True: Create Document] / [False: Send Email]:**
+- Graph: trigger → if-1 (status = "Open") → action-true (telegram) / action-false (telegram)
+- status=Open: trace follows `if-true` handle, only `action-true` in path ✅
+- status=closed: trace follows `if-false` handle, only `action-false` in path ✅
+- Branch decision logged in Automation Run Step with `branch_taken` field ✅
+
+**Switch 3-case + default test:**
+- Graph: trigger → switch-1 (status) → case-0/1/2 + default
+- status="Open" (case-1): follows `case-1` handle, only `action-case-1` in path ✅
+- status="Qualified" (no match): follows `default` handle ✅
+- status="New" (case-0): follows `case-0` handle ✅
+- Empty field: follows `default` handle ✅
+
+### Test suite results
+
+**New tests (20 total):**
+- `TestBranchingRegistry` (5): IF/Switch registered correctly, categories, handles ✅
+- `TestIFBranchSelection` (4): True/false branches, !=, > operators ✅
+- `TestSwitchBranchSelection` (4): Case match, default, first case, empty field ✅
+- `TestBranchingExecution` (2): Full execute_automation with IF, Run Step records ✅
+- `TestMidChainRemovalRecheck` (3): 3-node linear, 5-node, branching removal ✅
+- `TestGraphSaveLoadWithBranching` (2): IF/Switch JSON roundtrip ✅
+
+**Existing tests (29): all pass ✅**
+
+**Total: 49 tests, 0 fail**
+
+### Mid-chain removal re-check result
+
+**RE-CONFIRMED: mid-chain node removal works correctly.**
+
+Three scenarios tested:
+1. **3-node linear chain**: trigger → condition → action-1 → action-2. Remove `condition`: trigger → action-2 reconnects correctly. ✅
+2. **5-node linear chain**: trigger → action-1 → action-2 → action-3 → action-4. Remove `action-2`: trigger → action-1 → action-3 → action-4 reconnects correctly. ✅
+3. **Branching graph**: trigger → IF → [action-true, action-false]. Remove IF: both actions become orphaned (expected — user must manually reconnect). ✅
+
+This was the open risk flagged since Stage 17a. Now properly verified with 3 distinct test cases in `TestMidChainRemovalRecheck`.
+
+### Files changed
+- `automation_builder/action_types/__init__.py` — **UPDATED** (node_category, evaluate_branch, get_output_handles support)
+- `automation_builder/action_types/if_condition.py` — **CREATED** (IF logic type)
+- `automation_builder/action_types/switch_case.py` — **CREATED** (Switch logic type)
+- `automation_builder/dispatcher.py` — **REWRITTEN** (branching-aware graph walk, Run Step logging, legacy BFS kept)
+- `automation_builder/automation_builder/doctype/automation_run_step/` — **CREATED** (child DocType)
+- `automation_builder/automation_builder/doctype/automation_run/automation_run.json` — **UPDATED** (steps Table field)
+- `automation_builder/tests/test_18_branching.py` — **CREATED** (20 tests)
+- `automation_builder/tests/test_graph_traversal.py` — **UPDATED** (import _walk_graph_bfs)
+- `frontend/src/views/AutomationBuilder.vue` — **UPDATED** (IF/Switch templates, handles, picker)
+- `frontend/src/components/ConfigPanel.vue` — **UPDATED** (IF/Switch config panels, case management)
+- `frontend/src/components/NodePalette.vue` — **REWRITTEN** (3-section layout with Logic/Frappe/Actions)
+- `frontend/src/style.css` — **UPDATED** (IF/Switch styling, purple accent, output labels, palette sections)
+- `frontend/src/composables/api.js` — no changes needed (get_action_types already returns node_category)

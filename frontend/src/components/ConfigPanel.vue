@@ -51,6 +51,65 @@
       </div>
     </template>
 
+    <!-- IF Config -->
+    <template v-if="nodeType === 'if'">
+      <div class="ab-config-group">
+        <label>Field to Check</label>
+        <select v-model="local.field_to_check">
+          <option value="">Select Field</option>
+          <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+        </select>
+      </div>
+      <div class="ab-config-group">
+        <label>Operator</label>
+        <select v-model="local.operator">
+          <option>=</option>
+          <option>!=</option>
+          <option>></option>
+          <option><</option>
+          <option>>=</option>
+          <option><=</option>
+        </select>
+      </div>
+      <div class="ab-config-group">
+        <label>Value</label>
+        <input type="text" v-model="local.value" placeholder="e.g. Qualified" />
+        <p class="ab-config-hint">Supports {{trigger.fieldname}} tokens</p>
+      </div>
+      <div class="ab-config-hint ab-config-if-hint">
+        Routes to <strong>True</strong> branch if condition matches, <strong>False</strong> otherwise.
+        Connect each handle to a different action.
+      </div>
+    </template>
+
+    <!-- Switch Config -->
+    <template v-if="nodeType === 'switch'">
+      <div class="ab-config-group">
+        <label>Field to Check</label>
+        <select v-model="local.field_to_check">
+          <option value="">Select Field</option>
+          <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+        </select>
+      </div>
+      <div class="ab-config-group">
+        <label>Cases</label>
+        <div v-for="(caseItem, idx) in local.cases" :key="idx" class="ab-mapping-row">
+          <input
+            type="text"
+            class="ab-mapping-source"
+            :value="caseItem.case_value"
+            placeholder="Match value"
+            @input="updateCase(idx, $event.target.value)"
+          />
+          <button class="ab-btn ab-btn-ghost ab-btn-sm ab-mapping-remove" @click="removeCase(idx)">✕</button>
+        </div>
+        <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="addCase">+ Add Case</button>
+      </div>
+      <div class="ab-config-hint">
+        Each case creates an output handle. The <strong>Default</strong> handle is used when no case matches.
+      </div>
+    </template>
+
     <!-- Action Config — schema-driven -->
     <template v-if="nodeType === 'action'">
       <div class="ab-config-group">
@@ -103,7 +162,13 @@ const fields = ref([])
 const actionTypes = ref([])
 
 const title = computed(() => {
-  const titles = { trigger: 'Configure Trigger', condition: 'Configure Condition', action: 'Configure Action' }
+  const titles = {
+    trigger: 'Configure Trigger',
+    condition: 'Configure Condition',
+    action: 'Configure Action',
+    if: 'Configure IF',
+    switch: 'Configure Switch',
+  }
   return titles[props.nodeType] || 'Configure'
 })
 
@@ -124,12 +189,13 @@ async function onDocTypeChange() {
 }
 
 function onActionTypeChange() {
-  // Reset config to only action_type + schema defaults for the new type
   const schema = currentSchema.value
   const newLocal = { action_type: local.value.action_type }
   for (const field of schema) {
     if (field.type === 'field_mapping_table') {
       newLocal[field.name] = [{ target_field: '', source_value: '' }]
+    } else if (field.type === 'case_list') {
+      newLocal[field.name] = [{ case_value: '' }]
     } else {
       newLocal[field.name] = field.default !== undefined ? field.default : ''
     }
@@ -139,6 +205,24 @@ function onActionTypeChange() {
 
 function onConfigUpdate(newConfig) {
   local.value = { ...local.value, ...newConfig }
+}
+
+function addCase() {
+  const cases = [...(local.value.cases || [])]
+  cases.push({ case_value: '' })
+  local.value = { ...local.value, cases }
+}
+
+function removeCase(idx) {
+  const cases = [...(local.value.cases || [])]
+  cases.splice(idx, 1)
+  local.value = { ...local.value, cases }
+}
+
+function updateCase(idx, value) {
+  const cases = [...(local.value.cases || [])]
+  cases[idx] = { ...cases[idx], case_value: value }
+  local.value = { ...local.value, cases }
 }
 
 async function loadFields() {

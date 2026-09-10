@@ -167,22 +167,55 @@ def execute_automation(automation_name, ref_doctype, ref_name):
             run.insert(ignore_permissions=True)
             return
 
-        # Extract actions from graph nodes, ordered by graph traversal
-        actions = _extract_actions_from_graph(graph)
+        # Build node map for lookup during execution
+        node_map = {n["id"]: n for n in graph.get("nodes", [])}
+
+        context = {"doc": doc, "ref_doctype": ref_doctype, "ref_name": ref_name}
+
+        # Walk graph with branching evaluation
+        step_trace = _walk_graph(graph, "trigger", context)
 
         any_failed = False
         step_results = []
 
-        context = {"doc": doc, "ref_doctype": ref_doctype, "ref_name": ref_name}
+        for entry in step_trace:
+            entry_type = entry.get("type")
+            entry_node_id = entry.get("node_id")
 
-        for action_cfg in actions:
-            action_type = action_cfg.get("type")
-            config = action_cfg.get("config", {})
-            step_result = _execute_action(action_type, config, context)
-            step_results.append(step_result)
+            if entry_type == "branch":
+                # Branching decision — log which branch was taken
+                step_result = {
+                    "step_type": entry.get("node_type", "unknown"),
+                    "status": "Success",
+                    "branch_taken": entry.get("branch_taken", ""),
+                    "output": entry.get("output", ""),
+                }
+                step_results.append(step_result)
 
-            if step_result.get("status") != "Success":
-                any_failed = True
+                # Also create Automation Run Step record
+                _create_run_step(run, entry, node_map)
+
+            elif entry_type == "action":
+                node = node_map.get(entry_node_id, {})
+                data = node.get("data", {})
+                action_type = data.get("action_type")
+                if not action_type:
+                    continue
+                config = {k: v for k, v in data.items() if k != "action_type"}
+                step_result = _execute_action(action_type, config, context)
+                step_results.append(step_result)
+
+                if step_result.get("status") != "Success":
+                    any_failed = True
+
+                # Create Automation Run Step record
+                _create_run_step(run, {
+                    "type": "action",
+                    "node_id": entry_node_id,
+                    "step_type": action_type,
+                    "status": step_result.get("status", "Failed"),
+                    "output": step_result.get("output", step_result.get("error", "")),
+                }, node_map)
 
         run.status = "Failed" if any_failed else "Success"
         run.log = json.dumps(step_results, indent=2)
@@ -210,38 +243,27 @@ def execute_automation(automation_name, ref_doctype, ref_name):
         frappe.flags[guard_key] = False
 
 
-def _extract_actions_from_graph(graph):
-    """Extract action configurations from graph, in traversal order.
+def _create_run_step(run, entry, node_map):
+    """Create an Automation Run Step child record for a trace entry."""
+    node_id = entry.get("node_id", "")
+    node = node_map.get(node_id, {})
+    node_type = node.get("type", entry.get("type", ""))
 
-    Walks the graph from the trigger node following edges to determine
-    execution order. This is generic — handles branching for future IF/Switch.
-    """
-    nodes = graph.get("nodes", [])
-    edges = graph.get("edges", [])
+    step_type = entry.get("step_type", "")
+    if not step_type and node_type == "action":
+        step_type = node.get("data", {}).get("action_type", "action")
 
-    if not nodes:
-        return []
-
-    # Build node map for quick lookup
-    node_map = {n["id"]: n for n in nodes}
-
-    # Build adjacency list from edges
-    graph_adj = _build_edge_graph(edges)
-
-    # Walk graph starting from trigger node
-    ordered_ids = _walk_graph(graph_adj, "trigger")
-
-    # Extract action nodes in traversal order
-    actions = []
-    for nid in ordered_ids:
-        node = node_map.get(nid)
-        if node and node.get("type") == "action" and node.get("data", {}).get("action_type"):
-            actions.append({
-                "type": node["data"]["action_type"],
-                "config": {k: v for k, v in node["data"].items() if k != "action_type"},
-            })
-
-    return actions
+    step = frappe.get_doc({
+        "doctype": "Automation Run Step",
+        "node_id": node_id,
+        "node_type": node_type,
+        "step_type": step_type or node_type,
+        "status": entry.get("status", "Success"),
+        "branch_taken": entry.get("branch_taken", ""),
+        "output": entry.get("output", ""),
+        "error": entry.get("error", ""),
+    })
+    run.append("steps", step)
 
 
 def _execute_action(action_type, config, context):
@@ -265,8 +287,125 @@ def _execute_action(action_type, config, context):
 
 
 # ---------------------------------------------------------------------------
-# Edge-graph helpers — derive execution order from visual edges
+# Branching-aware graph walker
 # ---------------------------------------------------------------------------
+def _evaluate_branching_node(node, context):
+    """Evaluate a branching node (IF/Switch) and determine which handle to follow.
+
+    Returns (source_handle, log_message) tuple.
+    """
+    node_type = node.get("type")
+    node_data = node.get("data", {})
+    handler = get_action_type(
+        "if_condition" if node_type == "if" else "switch_case"
+    )
+    if handler and "evaluate_branch" in handler:
+        return handler["evaluate_branch"](node_data, context)
+    return None, f"Unknown branching type: {node_type}"
+
+
+def _walk_graph(graph, start_id, context=None):
+    """Walk graph from start_id, evaluating branching nodes if context is provided.
+
+    Returns a list of trace entries: [{"type": "branch"|"action"|"node", ...}]
+    preserving execution order.
+
+    When context is None (structural walk), follows the first outgoing edge of
+    every node — used for UI layout or when branching evaluation is not needed.
+    When context is provided (execution walk), branching nodes are evaluated and
+    only the matching branch is followed.
+    """
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    nodes_map = {n["id"]: n for n in nodes}
+
+    # Build edge map: source_id -> [(sourceHandle, target_id), ...]
+    edge_map = {}
+    for e in edges:
+        src = e.get("source")
+        tgt = e.get("target")
+        sh = e.get("sourceHandle", "")
+        if src and tgt:
+            edge_map.setdefault(src, []).append((sh, tgt))
+
+    trace = []
+    seen = set()
+    current_id = start_id
+
+    while current_id and current_id not in seen:
+        seen.add(current_id)
+        node = nodes_map.get(current_id, {})
+        node_type = node.get("type")
+        outgoing = edge_map.get(current_id, [])
+
+        if not outgoing:
+            # Leaf node — end of this branch
+            if node_type == "action" and node.get("data", {}).get("action_type"):
+                trace.append({"type": "action", "node_id": current_id})
+            break
+
+        if context and node_type in ("if", "switch"):
+            # Evaluate branching node
+            source_handle, log_msg = _evaluate_branching_node(node, context)
+            trace.append({
+                "type": "branch",
+                "node_id": current_id,
+                "node_type": node_type,
+                "branch_taken": source_handle,
+                "output": log_msg,
+            })
+            # Follow only the matching edge
+            next_id = None
+            for sh, tgt in outgoing:
+                if sh == source_handle:
+                    next_id = tgt
+                    break
+            if next_id is None and outgoing:
+                # Fallback: follow first edge
+                next_id = outgoing[0][1]
+            current_id = next_id
+        else:
+            # Non-branching node: action, trigger, condition
+            if node_type == "action" and node.get("data", {}).get("action_type"):
+                trace.append({"type": "action", "node_id": current_id})
+            # Follow the single outgoing edge
+            current_id = outgoing[0][1] if len(outgoing) == 1 else (outgoing[0][1] if outgoing else None)
+
+    return trace
+
+
+# ---------------------------------------------------------------------------
+# Legacy helpers — kept for backward compatibility / structural graph walks
+# ---------------------------------------------------------------------------
+def _extract_actions_from_graph(graph):
+    """Extract action configurations from graph, in structural traversal order.
+
+    Follows the first outgoing edge at each node (no branching evaluation).
+    Used for graph save/load validation, not execution.
+    """
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    if not nodes:
+        return []
+
+    node_map = {n["id"]: n for n in nodes}
+    graph_adj = _build_edge_graph(edges)
+    ordered_ids = _walk_graph_bfs(graph_adj, "trigger")
+
+    actions = []
+    for nid in ordered_ids:
+        node = node_map.get(nid)
+        if node and node.get("type") == "action" and node.get("data", {}).get("action_type"):
+            actions.append({
+                "type": node["data"]["action_type"],
+                "config": {k: v for k, v in node["data"].items() if k != "action_type"},
+            })
+
+    return actions
+
+
 def _build_edge_graph(edges):
     """Build adjacency list from edges array: {source_id: [target_id, ...]}."""
     graph = {}
@@ -278,12 +417,11 @@ def _build_edge_graph(edges):
     return graph
 
 
-def _walk_graph(graph, start_id):
-    """Walk graph from start_id following ALL outgoing edges (BFS).
+def _walk_graph_bfs(graph, start_id):
+    """BFS walk from start_id following ALL outgoing edges.
 
-    Returns ordered list of node IDs in execution order (trigger first,
-    then all nodes reachable from it). Handles branching (multiple
-    outgoing edges from a single node).
+    Returns ordered list of node IDs in execution order. Handles branching
+    (multiple outgoing edges from a single node) by visiting all targets.
     """
     from collections import deque
 

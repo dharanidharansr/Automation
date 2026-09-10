@@ -13,6 +13,7 @@ from frappe.tests import IntegrationTestCase
 from automation_builder.dispatcher import (
     _build_edge_graph,
     _walk_graph,
+    _walk_graph_bfs,
     _extract_actions_from_graph,
     execute_automation,
 )
@@ -28,7 +29,7 @@ class TestGraphTraversal(IntegrationTestCase):
             {"source": "condition", "target": "action-1"},
         ]
         graph = _build_edge_graph(edges)
-        result = _walk_graph(graph, "trigger")
+        result = _walk_graph_bfs(graph, "trigger")
 
         self.assertEqual(result, ["trigger", "condition", "action-1"])
 
@@ -40,7 +41,7 @@ class TestGraphTraversal(IntegrationTestCase):
             {"source": "condition", "target": "action-2"},
         ]
         graph = _build_edge_graph(edges)
-        result = _walk_graph(graph, "trigger")
+        result = _walk_graph_bfs(graph, "trigger")
 
         # Both actions should be visited
         self.assertIn("action-1", result)
@@ -52,7 +53,7 @@ class TestGraphTraversal(IntegrationTestCase):
     def test_empty_graph_traversal(self):
         """Test traversal of an empty graph (no edges) returns just the start node."""
         graph = _build_edge_graph([])
-        result = _walk_graph(graph, "trigger")
+        result = _walk_graph_bfs(graph, "trigger")
         # Start node is always visited even with no edges
         self.assertEqual(result, ["trigger"])
 
@@ -63,7 +64,7 @@ class TestGraphTraversal(IntegrationTestCase):
             {"source": "action-1", "target": "trigger"},  # Cycle back
         ]
         graph = _build_edge_graph(edges)
-        result = _walk_graph(graph, "trigger")
+        result = _walk_graph_bfs(graph, "trigger")
 
         # Should not infinite loop, should visit each node once
         self.assertEqual(len(result), len(set(result)))
