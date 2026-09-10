@@ -1981,3 +1981,70 @@ Added `validate_url_not_ssrf(url)` to `http_request.py`. Resolves hostname via `
 
 ### Audit findings I disagree with or think are lower priority than rated
 - None. All findings were valid and correctly prioritized. The 3 critical items were genuine security holes; the high-priority items caused real silent failures or misleading behavior. The test quality issues (#7) would have let future regressions slip through undetected.
+
+---
+
+## Stage 20 — AND/OR Condition Groups & New Operators — 2026-09-10
+
+### Done
+
+#### Part A: Multi-trigger verification (OR across rows)
+- Confirmed existing behavior: multiple trigger rows on one automation use OR semantics (ANY matching row fires the automation)
+- 3 tests written to explicitly document and verify this behavior
+
+#### Part B: AND/OR condition groups
+- Created `Automation Trigger Condition` grandchild DocType for nested conditions
+- Added `condition_logic` (Select: "All must match"/"Any must match") and `conditions` (Table) to `Automation Trigger`
+- Legacy flat `condition_field/operator/value` fields hidden on `Automation Trigger` for backward compatibility
+- `dispatcher.py` updated: `_evaluate_trigger_conditions()` queries child table first, falls back to legacy flat fields
+- `_evaluate_condition_group()` implements AND/OR logic across child table conditions
+- Migration patch `stage20_condition_groups.py` created for existing data
+- `api.py` updated: `get_automation()` returns nested conditions; `save_automation()` handles nested conditions in both create and update paths
+- **Key Frappe limitation discovered:** `doc.append()` on child tables doesn't support grandchild tables because `TABLE_DOCTYPES_FOR_CHILD_TABLES` is an empty mapping `{}`. Workaround: `_insert_grandchild_conditions()` inserts via `frappe.get_doc()` after the parent is saved
+
+#### Part C: New operators
+- 6 new operators added to `_SPECIAL_OPERATORS` dict and `_evaluate_special_operator()`: `like`, `not like`, `in`, `not in`, `is set`, `is not set`
+- Wildcard `%` support for `like`/`not like` (case-insensitive regex)
+- `re.escape()` bug fix: `%` is not escaped by `re.escape()`, so replacement uses `"%"` directly instead of `r"\%"` which would be a literal backslash-percent
+- `is set`/`is not set` check for `None` and empty string (not string coercion)
+
+#### Part D: Frontend
+- `ConfigPanel.vue` rewritten: trigger config now shows condition group UI with combinator selector (AND/OR), repeatable condition rows, Add/Remove buttons, all new operators in dropdowns, value input hidden for `is set`/`is not set`
+- `AutomationBuilder.vue` updated: saves trigger conditions + condition_logic; loads condition group data from saved automations
+- CSS styles added for condition group UI (`.ab-config-section`, `.ab-condition-row`, `.ab-condition-logic`, etc.)
+
+#### Part E: Bug fixes during verification
+- `like` wildcard fix: `re.escape(r"\%")` → `"%"` in `.replace()` (re.escape doesn't escape `%`)
+- `is set`/`is not set` fix: was using `str(None)` which gives `"None"` (truthy), now checks `actual is not None and actual != ""`
+- `save_automation` grandchild insert: 4 iterations to find the right approach (Frappe `append()` → `frappe.get_doc()` → direct SQL → `frappe.get_doc()` after parent save)
+
+### Commit
+- `167134b` — Stage 20: AND/OR condition groups, new operators, and frontend
+
+### Files created/changed
+- `automation_builder/automation_builder/doctype/automation_trigger_condition/__init__.py` — **CREATED**
+- `automation_builder/automation_builder/doctype/automation_trigger_condition/automation_trigger_condition.json` — **CREATED**
+- `automation_builder/automation_builder/doctype/automation_trigger_condition/automation_trigger_condition.py` — **CREATED**
+- `automation_builder/automation_builder/doctype/automation_trigger/automation_trigger.json` — **UPDATED**: added `condition_logic`, `conditions` Table, legacy fields hidden, composite index
+- `automation_builder/automation_builder/patches/stage20_condition_groups.py` — **CREATED**: migrates flat conditions to child table
+- `automation_builder/dispatcher.py` — **UPDATED**: unified `_evaluate_single_condition()`, `_evaluate_special_operator()`, `_evaluate_condition_group()`, new operators
+- `automation_builder/api.py` — **UPDATED**: `_insert_grandchild_conditions()`, nested trigger conditions in get/save, grandchild cleanup on update
+- `automation_builder/tests/test_20_condition_groups.py` — **CREATED**: AND/OR groups, new operators, migration preservation, unified evaluation tests
+- `automation_builder/tests/test_20a_multitrigger.py` — **CREATED**: 3 multi-trigger verification tests
+- `frontend/src/views/AutomationBuilder.vue` — **UPDATED**: trigger conditions saving/loading with nested structure
+- `frontend/src/components/ConfigPanel.vue` — **REWRITTEN**: condition group UI, new operators, unary operator handling
+- `frontend/src/style.css` — **UPDATED**: condition group UI styles
+
+### Full test suite result
+- **95 tests ran, 95 passed, 0 skipped**
+- 0 failures, 0 errors
+
+### Known issues / limitations
+- Switch node dynamic handles may need `updateNodeInternals()` call — not visually verified in live browser
+- Cannot open actual browser GUI for live debugging/screenshotting
+- `__ is not a function` errors from Frappe's own notifications.js are pre-existing and unrelated
+
+### Recommended next stage
+- Stage 21: Additional action types (Send Notification, Set Value, Call Webhook, Delay/Wait, etc.)
+- Stage 22: Execution history UI and logging improvements
+- Stage 23: Workflow templates / import-export
