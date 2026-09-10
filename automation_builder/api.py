@@ -65,9 +65,21 @@ def get_automation(name):
     # Get triggers from child table
     triggers = []
     for trigger in doc.triggers:
+        # Get conditions from grandchild table
+        conditions = []
+        for cond in trigger.conditions:
+            conditions.append({
+                "condition_field": cond.condition_field,
+                "condition_operator": cond.condition_operator,
+                "condition_value": cond.condition_value,
+            })
+
         triggers.append({
             "trigger_doctype": trigger.trigger_doctype,
             "trigger_event": trigger.trigger_event,
+            "condition_logic": trigger.condition_logic or "All must match",
+            "conditions": conditions,
+            # Legacy flat fields for backward compat display
             "condition_field": trigger.condition_field,
             "condition_operator": trigger.condition_operator,
             "condition_value": trigger.condition_value,
@@ -89,6 +101,30 @@ def get_automation(name):
         "condition_value": doc.condition_value or (triggers[0]["condition_value"] if triggers else None),
         "workflow_json": doc.workflow_json or doc.graph_definition,
     }
+
+
+def _insert_grandchild_conditions(doc, conditions_per_trigger):
+    """Insert grandchild condition rows after parent save.
+
+    Args:
+        doc: Saved Automation doc (with triggers already persisted)
+        conditions_per_trigger: List of lists; conditions_per_trigger[i] is the
+            list of condition dicts for doc.triggers[i]
+    """
+    for idx, conditions in enumerate(conditions_per_trigger):
+        if not conditions:
+            continue
+        trigger_name = doc.triggers[idx].name
+        for cond_data in conditions:
+            frappe.get_doc({
+                "doctype": "Automation Trigger Condition",
+                "parent": trigger_name,
+                "parenttype": "Automation Trigger",
+                "parentfield": "conditions",
+                "condition_field": cond_data["condition_field"],
+                "condition_operator": cond_data["condition_operator"],
+                "condition_value": cond_data.get("condition_value", ""),
+            }).insert(ignore_permissions=True)
 
 
 @frappe.whitelist()
@@ -139,8 +175,20 @@ def save_automation(
 
         # Handle triggers table (new format)
         if triggers is not None:
+            # Delete existing grandchild conditions before replacing triggers
+            old_trigger_names = [t.name for t in doc.triggers]
+            if old_trigger_names:
+                frappe.db.sql(
+                    "DELETE FROM `tabAutomation Trigger Condition` WHERE parent IN %s",
+                    (old_trigger_names,),
+                )
             doc.triggers = []
+            saved_conditions = []
             for trigger_data in triggers:
+                conditions = trigger_data.pop("conditions", [])
+                saved_conditions.append(conditions)
+                cond_logic = trigger_data.pop("condition_logic", "All must match")
+                trigger_data["condition_logic"] = cond_logic
                 doc.append("triggers", trigger_data)
 
         # Handle legacy fields for backward compatibility
@@ -158,6 +206,7 @@ def save_automation(
             doc.condition_value = condition_value
 
         doc.save(ignore_permissions=True)
+        _insert_grandchild_conditions(doc, saved_conditions)
     else:
         doc = frappe.new_doc("Automation")
         doc.automation_name = automation_name
@@ -176,7 +225,12 @@ def save_automation(
 
         # Handle triggers table (new format)
         if triggers is not None:
+            saved_conditions = []
             for trigger_data in triggers:
+                conditions = trigger_data.pop("conditions", [])
+                saved_conditions.append(conditions)
+                cond_logic = trigger_data.pop("condition_logic", "All must match")
+                trigger_data["condition_logic"] = cond_logic
                 doc.append("triggers", trigger_data)
 
         # Handle legacy fields for backward compatibility
@@ -194,6 +248,7 @@ def save_automation(
             doc.condition_value = condition_value
 
         doc.insert(ignore_permissions=True)
+        _insert_grandchild_conditions(doc, saved_conditions)
 
     return {"name": doc.name, "automation_name": doc.automation_name}
 

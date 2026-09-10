@@ -32,6 +32,85 @@ OPERATORS = {
     "<=": op.le,
 }
 
+# Operators that need special handling (not simple comparison)
+_SPECIAL_OPERATORS = {"like", "not like", "in", "not in", "is set", "is not set"}
+
+
+def _evaluate_single_condition(doc, cond):
+    """Evaluate a single condition dict against a document.
+
+    Works for both trigger-level conditions (from Automation Trigger Condition
+    child table) and graph-walk condition nodes (from the graph canvas).
+
+    Args:
+        doc: The trigger document (has .get() method)
+        cond: dict with keys: condition_field, condition_operator, condition_value
+              (or field_to_check/operator/value for graph-walk nodes)
+
+    Returns:
+        bool: True if the condition matches.
+    """
+    field = cond.get("condition_field") or cond.get("field_to_check", "")
+    operator_str = cond.get("condition_operator") or cond.get("operator", "")
+    expected = cond.get("condition_value") or cond.get("value", "")
+
+    if not field or not operator_str:
+        return True
+
+    actual = doc.get(field) if doc else None
+
+    # Handle special operators
+    if operator_str in _SPECIAL_OPERATORS:
+        return _evaluate_special_operator(actual, operator_str, expected)
+
+    # Standard comparison operators
+    comparator = OPERATORS.get(operator_str)
+    if comparator is None:
+        return False
+
+    if operator_str in (">", "<", ">=", "<="):
+        try:
+            actual = float(actual)
+            expected = float(expected)
+        except (TypeError, ValueError):
+            pass
+
+    return comparator(actual, expected)
+
+
+def _evaluate_special_operator(actual, operator_str, expected):
+    """Evaluate special operators: like, not like, in, not in, is set, is not set."""
+    actual_str = str(actual) if actual is not None else ""
+    expected_str = str(expected) if expected is not None else ""
+
+    if operator_str == "is set":
+        return actual is not None and actual != ""
+    elif operator_str == "is not set":
+        return actual is None or actual == ""
+    elif operator_str == "like":
+        # Case-insensitive substring match. If expected contains %, treat as
+        # simple wildcard (% matches any substring).
+        if "%" in expected_str:
+            import re
+            # Escape everything except %, then replace % with .*
+            pattern = re.escape(expected_str).replace("%", ".*")
+            return bool(re.search(pattern, actual_str, re.IGNORECASE))
+        return expected_str.lower() in actual_str.lower()
+    elif operator_str == "not like":
+        if "%" in expected_str:
+            import re
+            pattern = re.escape(expected_str).replace("%", ".*")
+            return not bool(re.search(pattern, actual_str, re.IGNORECASE))
+        return expected_str.lower() not in actual_str.lower()
+    elif operator_str == "in":
+        values = [v.strip() for v in expected_str.split(",")]
+        return actual_str in values
+    elif operator_str == "not in":
+        values = [v.strip() for v in expected_str.split(",")]
+        return actual_str not in values
+
+    return False
+
 
 # ---------------------------------------------------------------------------
 # Hook entry point — called for every document save/submit/cancel site-wide
@@ -85,47 +164,65 @@ def on_doc_event(doc, method):
 def _evaluate_trigger_conditions(automation_name, doc):
     """Evaluate all trigger conditions for an automation against the document.
 
-    An automation can have multiple triggers (Phase 2 prep). For now, typically
-    only one trigger row exists. Returns True if ANY trigger's conditions match.
+    An automation can have multiple triggers (OR across rows — ANY matching
+    trigger row is sufficient). Each trigger row can have multiple conditions
+    combined with AND/OR (governed by condition_logic on the row).
+
+    Returns True if ANY trigger row's conditions match.
     """
     triggers = frappe.get_all(
         "Automation Trigger",
         filters={"parent": automation_name},
-        fields=["condition_field", "condition_operator", "condition_value"],
+        fields=["name", "condition_field", "condition_operator", "condition_value",
+                "condition_logic"],
     )
 
     if not triggers:
         return True
 
     for trigger in triggers:
-        if _evaluate_condition(doc, trigger):
-            return True
+        # Check if this trigger row has conditions in the new child table
+        conditions = frappe.get_all(
+            "Automation Trigger Condition",
+            filters={"parent": trigger.name},
+            fields=["condition_field", "condition_operator", "condition_value"],
+            order_by="idx asc",
+        )
+
+        if conditions:
+            # New path: evaluate condition group with AND/OR logic
+            logic = trigger.condition_logic or "All must match"
+            if _evaluate_condition_group(doc, conditions, logic):
+                return True
+        else:
+            # Legacy path: single flat condition fields on the trigger row
+            if _evaluate_single_condition(doc, trigger):
+                return True
 
     return False
 
 
-def _evaluate_condition(doc, trigger_row):
-    """Evaluate a single condition against the document."""
-    field = trigger_row.condition_field
-    operator = trigger_row.condition_operator
-    expected = trigger_row.condition_value
+def _evaluate_condition_group(doc, conditions, logic="All must match"):
+    """Evaluate a group of conditions with AND/OR logic.
 
-    if not field or not operator:
+    Args:
+        doc: The trigger document
+        conditions: list of condition dicts (condition_field, condition_operator, condition_value)
+        logic: "All must match" (AND) or "Any must match" (OR)
+
+    Returns:
+        bool: True if the group matches according to the logic.
+    """
+    if not conditions:
         return True
 
-    actual = doc.get(field)
-    comparator = OPERATORS.get(operator)
-    if comparator is None:
-        return False
+    results = [_evaluate_single_condition(doc, c) for c in conditions]
 
-    if operator in (">", "<", ">=", "<="):
-        try:
-            actual = float(actual)
-            expected = float(expected)
-        except (TypeError, ValueError):
-            pass
-
-    return comparator(actual, expected)
+    if logic == "Any must match":
+        return any(results)
+    else:
+        # Default: "All must match"
+        return all(results)
 
 
 # ---------------------------------------------------------------------------
@@ -370,36 +467,19 @@ def _walk_graph(graph, start_id, context=None):
             # If the condition matches, execution continues downstream.
             # If it doesn't match, execution STOPS (downstream actions are skipped).
             node_data = node.get("data", {})
-            cond_field = node_data.get("condition_field", "")
-            cond_operator = node_data.get("condition_operator", "")
-            cond_value = node_data.get("condition_value", "")
+            matched = _evaluate_single_condition(context.get("doc"), node_data)
 
-            if cond_field and cond_operator:
-                doc = context.get("doc")
-                actual = doc.get(cond_field) if doc else None
-                comparator = OPERATORS.get(cond_operator)
-                matched = False
-                if comparator:
-                    expected = cond_value
-                    if cond_operator in (">", "<", ">=", "<="):
-                        try:
-                            actual = float(actual)
-                            expected = float(expected)
-                        except (TypeError, ValueError):
-                            pass
-                    matched = comparator(actual, expected)
+            trace.append({
+                "type": "branch",
+                "node_id": current_id,
+                "node_type": "condition",
+                "branch_taken": "condition-out" if matched else "skipped",
+                "output": f"Condition {node_data.get('condition_field', '')} {node_data.get('condition_operator', '')} '{node_data.get('condition_value', '')}' -> {'TRUE' if matched else 'FALSE'} (action skipped)",
+            })
 
-                trace.append({
-                    "type": "branch",
-                    "node_id": current_id,
-                    "node_type": "condition",
-                    "branch_taken": "condition-out" if matched else "skipped",
-                    "output": f"Condition {cond_field} {cond_operator} '{cond_value}' -> {'TRUE' if matched else 'FALSE'} (action skipped)",
-                })
-
-                if not matched:
-                    # Condition failed — stop execution, downstream actions skipped
-                    break
+            if not matched:
+                # Condition failed — stop execution, downstream actions skipped
+                break
 
             # Follow the single outgoing edge (condition matched or no condition set)
             current_id = outgoing[0][1] if outgoing else None

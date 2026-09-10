@@ -21,20 +21,37 @@
       "index": 1
     },
     {
+      "fieldname": "condition_logic",
+      "fieldtype": "Select",
+      "label": "Condition Logic",
+      "options": "All must match\nAny must match",
+      "default": "All must match",
+      "description": "How multiple conditions within this trigger row are combined."
+    },
+    {
+      "fieldname": "conditions",
+      "fieldtype": "Table",
+      "label": "Conditions",
+      "options": "Automation Trigger Condition"
+    },
+    {
       "fieldname": "condition_field",
       "fieldtype": "Data",
-      "label": "Condition Field"
+      "label": "Condition Field (Legacy)",
+      "hidden": 1
     },
     {
       "fieldname": "condition_operator",
       "fieldtype": "Select",
-      "label": "Condition Operator",
-      "options": "=\n!=\n>\n<\n>=\n<="
+      "label": "Condition Operator (Legacy)",
+      "options": "=\n!=\n>\n<\n>=\n<=",
+      "hidden": 1
     },
     {
       "fieldname": "condition_value",
       "fieldtype": "Data",
-      "label": "Condition Value"
+      "label": "Condition Value (Legacy)",
+      "hidden": 1
     }
   ],
   "indexes": [

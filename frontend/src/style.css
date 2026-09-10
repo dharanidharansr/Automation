@@ -911,6 +911,83 @@
   box-shadow: var(--focus-blue);
 }
 
+/* Condition Group UI */
+.ab-config-section {
+  margin-bottom: var(--margin-md);
+  padding: var(--padding-sm);
+  background: var(--control-bg);
+  border-radius: var(--border-radius-sm);
+}
+
+.ab-config-section > label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.ab-condition-logic-row {
+  margin-bottom: var(--padding-sm);
+}
+
+.ab-condition-logic {
+  width: 100%;
+  padding: var(--input-padding);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-sm);
+  background: var(--control-bg);
+  color: var(--text-color);
+  height: var(--input-height);
+}
+
+.ab-condition-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+
+.ab-condition-field {
+  flex: 2;
+  padding: var(--input-padding);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-sm);
+  background: var(--control-bg);
+  color: var(--text-color);
+  height: var(--input-height);
+}
+
+.ab-condition-operator {
+  flex: 1;
+  padding: var(--input-padding);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-sm);
+  background: var(--control-bg);
+  color: var(--text-color);
+  height: var(--input-height);
+}
+
+.ab-condition-value {
+  flex: 2;
+  padding: var(--input-padding);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-sm);
+  background: var(--control-bg);
+  color: var(--text-color);
+  height: var(--input-height);
+}
+
+.ab-condition-remove {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  height: var(--input-height);
+}
+
 /* === Run History === */
 .ab-runs {
   margin: 0 var(--margin-md);

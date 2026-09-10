@@ -1,0 +1,27 @@
+{
+  "name": "Automation Trigger Condition",
+  "module": "Automation Builder",
+  "doctype": "DocType",
+  "istable": 1,
+  "fields": [
+    {
+      "fieldname": "condition_field",
+      "fieldtype": "Data",
+      "label": "Field",
+      "reqd": 1
+    },
+    {
+      "fieldname": "condition_operator",
+      "fieldtype": "Select",
+      "label": "Operator",
+      "options": "=\n!=\n>\n<\n>=\n<=\nlike\nnot like\nin\nnot in\nis set\nis not set",
+      "reqd": 1
+    },
+    {
+      "fieldname": "condition_value",
+      "fieldtype": "Data",
+      "label": "Value",
+      "description": "Required for most operators. For 'in'/'not in', use comma-separated values. Not needed for 'is set'/'is not set'."
+    }
+  ]
+}

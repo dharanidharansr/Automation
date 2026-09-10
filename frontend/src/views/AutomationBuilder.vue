@@ -733,9 +733,33 @@ async function save() {
     // Build triggers array from trigger node data
     const triggers = []
     if (trigger?.data?.trigger_doctype) {
+      // Build conditions from the trigger node's condition data
+      const conditions = []
+      if (trigger.data.conditions && trigger.data.conditions.length) {
+        for (const cond of trigger.data.conditions) {
+          if (cond.condition_field) {
+            conditions.push({
+              condition_field: cond.condition_field,
+              condition_operator: cond.condition_operator || '=',
+              condition_value: cond.condition_value || '',
+            })
+          }
+        }
+      } else if (condition?.data?.condition_field) {
+        // Legacy single condition from graph condition node
+        conditions.push({
+          condition_field: condition.data.condition_field,
+          condition_operator: condition.data.condition_operator || '=',
+          condition_value: condition.data.condition_value || '',
+        })
+      }
+
       triggers.push({
         trigger_doctype: trigger.data.trigger_doctype,
         trigger_event: trigger.data.trigger_event || 'On Update',
+        condition_logic: trigger.data.condition_logic || 'All must match',
+        conditions: conditions,
+        // Legacy flat fields for backward compat
         condition_field: condition?.data?.condition_field || '',
         condition_operator: condition?.data?.condition_operator || '=',
         condition_value: condition?.data?.condition_value || '',
@@ -856,11 +880,16 @@ onMounted(async () => {
         if (trigger) {
           trigger.data.trigger_doctype = firstTrigger.trigger_doctype || ''
           trigger.data.trigger_event = firstTrigger.trigger_event || 'On Update'
+          // Load condition group data
+          trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
+          trigger.data.conditions = firstTrigger.conditions || []
         }
+        // Also populate legacy graph condition node if it exists
         if (condition) {
           condition.data.condition_field = firstTrigger.condition_field || ''
           condition.data.condition_operator = firstTrigger.condition_operator || '='
           condition.data.condition_value = firstTrigger.condition_value || ''
+        }
         }
       }
     } catch (e) {

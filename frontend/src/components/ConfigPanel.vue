@@ -2,7 +2,7 @@
   <div class="ab-config">
     <div class="ab-config-header">
       <h3>{{ title }}</h3>
-      <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="$emit('close')">✕</button>
+      <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="$emit('close')">&#x2715;</button>
     </div>
 
     <!-- Trigger Config -->
@@ -23,9 +23,49 @@
           <option>On Cancel</option>
         </select>
       </div>
+
+      <!-- Condition Group -->
+      <div class="ab-config-section">
+        <label>Conditions</label>
+        <div class="ab-condition-logic-row">
+          <select v-model="local.condition_logic" class="ab-condition-logic">
+            <option>All must match (AND)</option>
+            <option>Any must match (OR)</option>
+          </select>
+        </div>
+        <div v-for="(cond, idx) in local.conditions" :key="idx" class="ab-condition-row">
+          <select v-model="cond.condition_field" class="ab-condition-field">
+            <option value="">Field</option>
+            <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }}</option>
+          </select>
+          <select v-model="cond.condition_operator" class="ab-condition-operator" @change="onOperatorChange(idx)">
+            <option>=</option>
+            <option>!=</option>
+            <option>></option>
+            <option>&lt;</option>
+            <option>>=</option>
+            <option>&lt;=</option>
+            <option>like</option>
+            <option>not like</option>
+            <option>in</option>
+            <option>not in</option>
+            <option>is set</option>
+            <option>is not set</option>
+          </select>
+          <input
+            v-if="!isUnaryOperator(cond.condition_operator)"
+            type="text"
+            v-model="cond.condition_value"
+            class="ab-condition-value"
+            :placeholder="valuePlaceholder(cond.condition_operator)"
+          />
+          <button class="ab-btn ab-btn-ghost ab-btn-sm ab-condition-remove" @click="removeCondition(idx)">&#x2715;</button>
+        </div>
+        <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="addCondition">+ Add Condition</button>
+      </div>
     </template>
 
-    <!-- Condition Config -->
+    <!-- Condition Config (graph node) -->
     <template v-if="nodeType === 'condition'">
       <div class="ab-config-group">
         <label>Field</label>
@@ -36,16 +76,22 @@
       </div>
       <div class="ab-config-group">
         <label>Operator</label>
-        <select v-model="local.condition_operator">
+        <select v-model="local.condition_operator" @change="onNodeOperatorChange">
           <option>=</option>
           <option>!=</option>
           <option>></option>
-          <option><</option>
+          <option>&lt;</option>
           <option>>=</option>
-          <option><=</option>
+          <option>&lt;=</option>
+          <option>like</option>
+          <option>not like</option>
+          <option>in</option>
+          <option>not in</option>
+          <option>is set</option>
+          <option>is not set</option>
         </select>
       </div>
-      <div class="ab-config-group">
+      <div v-if="!isUnaryOperator(local.condition_operator)" class="ab-config-group">
         <label>Value</label>
         <input type="text" v-model="local.condition_value" placeholder="e.g. Qualified" />
       </div>
@@ -62,16 +108,22 @@
       </div>
       <div class="ab-config-group">
         <label>Operator</label>
-        <select v-model="local.operator">
+        <select v-model="local.operator" @change="onIfOperatorChange">
           <option>=</option>
           <option>!=</option>
           <option>></option>
-          <option><</option>
+          <option>&lt;</option>
           <option>>=</option>
-          <option><=</option>
+          <option>&lt;=</option>
+          <option>like</option>
+          <option>not like</option>
+          <option>in</option>
+          <option>not in</option>
+          <option>is set</option>
+          <option>is not set</option>
         </select>
       </div>
-      <div class="ab-config-group">
+      <div v-if="!isUnaryOperator(local.operator)" class="ab-config-group">
         <label>Value</label>
         <input type="text" v-model="local.value" placeholder="e.g. Qualified" />
         <p class="ab-config-hint">Supports {{trigger.fieldname}} tokens</p>
@@ -101,7 +153,7 @@
             placeholder="Match value"
             @input="updateCase(idx, $event.target.value)"
           />
-          <button class="ab-btn ab-btn-ghost ab-btn-sm ab-mapping-remove" @click="removeCase(idx)">✕</button>
+          <button class="ab-btn ab-btn-ghost ab-btn-sm ab-mapping-remove" @click="removeCase(idx)">&#x2715;</button>
         </div>
         <button class="ab-btn ab-btn-ghost ab-btn-sm" @click="addCase">+ Add Case</button>
       </div>
@@ -178,10 +230,20 @@ const currentSchema = computed(() => {
   return at ? at.config_schema : []
 })
 
-async function onDocTypeChange() {
+function isUnaryOperator(op) {
+  return op === 'is set' || op === 'is not set'
+}
+
+function valuePlaceholder(op) {
+  if (op === 'in' || op === 'not in') return 'val1, val2, ...'
+  if (op === 'like' || op === 'not like') return '%pattern%'
+  return 'Value'
+}
+
+function onDocTypeChange() {
   if (local.value.trigger_doctype) {
     try {
-      fields.value = await getDoctypeFields(local.value.trigger_doctype)
+      fields.value = getDoctypeFields(local.value.trigger_doctype)
     } catch (e) {
       fields.value = []
     }
@@ -207,6 +269,42 @@ function onConfigUpdate(newConfig) {
   local.value = { ...local.value, ...newConfig }
 }
 
+// Condition group methods
+function addCondition() {
+  const conditions = [...(local.value.conditions || [])]
+  conditions.push({ condition_field: '', condition_operator: '=', condition_value: '' })
+  local.value = { ...local.value, conditions }
+}
+
+function removeCondition(idx) {
+  const conditions = [...(local.value.conditions || [])]
+  conditions.splice(idx, 1)
+  local.value = { ...local.value, conditions }
+}
+
+function onOperatorChange(idx) {
+  const conditions = [...(local.value.conditions || [])]
+  const cond = { ...conditions[idx] }
+  if (isUnaryOperator(cond.condition_operator)) {
+    cond.condition_value = ''
+  }
+  conditions[idx] = cond
+  local.value = { ...local.value, conditions }
+}
+
+function onNodeOperatorChange() {
+  if (isUnaryOperator(local.value.condition_operator)) {
+    local.value = { ...local.value, condition_value: '' }
+  }
+}
+
+function onIfOperatorChange() {
+  if (isUnaryOperator(local.value.operator)) {
+    local.value = { ...local.value, value: '' }
+  }
+}
+
+// Case methods (for Switch)
 function addCase() {
   const cases = [...(local.value.cases || [])]
   cases.push({ case_value: '' })
