@@ -408,6 +408,16 @@
   color: var(--green-600);
 }
 
+.ab-node-icon-wrap--if {
+  background: var(--bg-purple);
+  color: var(--purple-500);
+}
+
+.ab-node-icon-wrap--switch {
+  background: var(--bg-purple);
+  color: var(--purple-500);
+}
+
 /* Trigger: blue tint */
 .ab-node-trigger .ab-node-title {
   color: var(--blue-500);
@@ -925,6 +935,50 @@
   font-weight: var(--weight-regular);
   color: var(--text-muted);
   margin-bottom: 6px;
+}
+
+/* Multi-trigger row */
+.ab-trigger-row {
+  margin-bottom: var(--margin-md);
+  padding: var(--padding-sm);
+  background: var(--control-bg);
+  border-radius: var(--border-radius-sm);
+  border-left: 3px solid var(--blue-400);
+}
+
+.ab-trigger-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--padding-sm);
+}
+
+.ab-trigger-row-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--heading-color);
+}
+
+.ab-add-trigger-btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: var(--padding-sm);
+  border: 1px dashed var(--border-color);
+  color: var(--text-muted);
+}
+
+.ab-add-trigger-btn:hover {
+  border-color: var(--blue-400);
+  color: var(--blue-500);
+}
+
+.ab-config-trigger-hint {
+  font-size: var(--text-xs);
+  color: var(--text-light);
+  margin-bottom: var(--padding-md);
+  padding: var(--padding-sm);
+  background: var(--bg-blue);
+  border-radius: var(--border-radius-sm);
 }
 
 .ab-condition-logic-row {

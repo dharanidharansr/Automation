@@ -2048,3 +2048,138 @@ Added `validate_url_not_ssrf(url)` to `http_request.py`. Resolves hostname via `
 - Stage 21: Additional action types (Send Notification, Set Value, Call Webhook, Delay/Wait, etc.)
 - Stage 22: Execution history UI and logging improvements
 - Stage 23: Workflow templates / import-export
+
+---
+
+## Stage 21 — Fix post-Stage-20 regressions (load failure, missing multi-trigger UI, IF/Switch) — 2026-09-10
+
+### Part A: "Failed to load automation" — root cause confirmed + fix
+
+**Root cause (confirmed via bench console testing):**
+
+When `AutomationTrigger` is loaded as a child of `Automation` via `frappe.get_doc("Automation", name)`, Frappe does NOT populate grandchild table attributes on the child object. The `conditions` attribute (which references `Automation Trigger Condition`) is missing from `trigger.__dict__`.
+
+Evidence:
+```
+# Direct load — works
+trigger_doc = frappe.get_doc("Automation Trigger", trigger_name)
+hasattr(trigger_doc, 'conditions')  # True
+
+# Loaded via parent — broken
+doc = frappe.get_doc("Automation", "Lead Qualified Demo")
+hasattr(doc.triggers[0], 'conditions')  # False
+```
+
+The `tabDocField` metadata correctly defines the `conditions` Table field, and `bench migrate` + `bench clear-cache` were run. This is a **Frappe limitation**: child table objects loaded via parent don't get their own grandchild table fields populated.
+
+**Fix applied:**
+
+Modified `get_automation()` in `api.py` to query grandchild conditions via SQL instead of relying on `trigger.conditions`:
+
+```python
+# Before (broken):
+for cond in trigger.conditions:  # AttributeError
+
+# After (fixed):
+conditions_rows = frappe.db.sql(
+    """SELECT parent, condition_field, condition_operator, condition_value
+       FROM `tabAutomation Trigger Condition`
+       WHERE parent IN %s ORDER BY parent, idx""",
+    (tuple(trigger_names),), as_dict=True,
+)
+```
+
+**Also fixed:**
+
+1. **Frontend load logic** (`AutomationBuilder.vue`): When `graph_definition` exists, the frontend loads nodes from JSON but never loaded trigger conditions from the API response. Added code to populate `trigger.data.trigger_rows` from `auto.triggers` in both the `graph_definition` path and the fallback path.
+
+2. **Syntax error** (`AutomationBuilder.vue` line 893): Extra `}` brace was removed.
+
+3. **Async bug** (`ConfigPanel.vue`): `onDocTypeChange()` called `getDoctypeFields()` (async) without `await`, assigning a Promise to `fields.value` instead of the actual data. Added `async/await`.
+
+**Files changed:**
+- `automation_builder/api.py` — `get_automation()` queries grandchild via SQL
+- `frontend/src/views/AutomationBuilder.vue` — load logic populates trigger_rows from API; syntax fix
+- `frontend/src/components/ConfigPanel.vue` — async fix for `onDocTypeChange`
+
+**Verification:** Created automation with conditions via `save_automation`, loaded back via `get_automation`, confirmed conditions array is correctly populated.
+
+---
+
+### Part B: Multi-trigger UI added
+
+**What was done:**
+
+Redesigned the trigger config section in `ConfigPanel.vue` to support multiple trigger rows:
+
+1. **New template structure**: Each trigger row is rendered in a `.ab-trigger-row` card with its own DocType selector, Event selector, condition logic (AND/OR), and conditions list.
+
+2. **"+ Add Trigger" button**: Clearly visible at the bottom of the trigger config section.
+
+3. **Remove button**: Each trigger row beyond the first has a remove button (×).
+
+4. **Data model**: Trigger rows stored as `trigger_rows` array on the trigger node's data. Each row has: `trigger_doctype`, `trigger_event`, `condition_logic`, `conditions[]`.
+
+5. **Backward compatibility**: `apply()` function converts `trigger_rows` back to flat format (`trigger_doctype`, `trigger_event`, `condition_logic`, `conditions`) for the parent component.
+
+6. **Save function updated**: `save()` in `AutomationBuilder.vue` now iterates over `trigger.data.trigger_rows` to build the triggers array sent to the API.
+
+7. **Load function updated**: Converts API `triggers` array into `trigger_rows` format when loading.
+
+**Files changed:**
+- `frontend/src/components/ConfigPanel.vue` — trigger config section rewritten for multi-trigger
+- `frontend/src/views/AutomationBuilder.vue` — save/load functions handle trigger_rows
+- `frontend/src/style.css` — new styles: `.ab-trigger-row`, `.ab-trigger-row-header`, `.ab-add-trigger-btn`, `.ab-config-trigger-hint`
+
+---
+
+### Part C: IF/Switch visual error + config sidebar — root cause confirmed + fix
+
+**Root causes (confirmed via code inspection):**
+
+1. **Missing CSS classes** (`style.css`): `ab-node-icon-wrap--if` and `ab-node-icon-wrap--switch` were not defined. The IF/Switch node templates reference these classes for the icon wrapper background color, but they were never added. Without them, the icon wrapper has no background color, causing visual inconsistency.
+
+2. **Template variable error** (`ConfigPanel.vue` line 147): `{{trigger.fieldname}}` referenced an undefined variable `trigger`. The ConfigPanel scope has `triggerDoctype` as a prop, not `trigger`. This would cause a Vue rendering error in the IF config section's hint text.
+
+3. **Data pollution** (`ConfigPanel.vue`): `ensureTriggerRows()` was called for ALL node types including IF/Switch, adding unnecessary `trigger_rows` property to IF/Switch node data. This could cause issues when saving/loading.
+
+**Fixes applied:**
+
+1. Added missing CSS classes:
+```css
+.ab-node-icon-wrap--if { background: var(--bg-purple); color: var(--purple-500); }
+.ab-node-icon-wrap--switch { background: var(--bg-purple); color: var(--purple-500); }
+```
+
+2. Fixed template variable: `{{trigger.fieldname}}` → `{{triggerDoctype}}`
+
+3. Guarded `ensureTriggerRows()` calls with `if (props.nodeType === 'trigger')` check.
+
+**Files changed:**
+- `frontend/src/components/ConfigPanel.vue` — template fix, guard ensureTriggerRows
+- `frontend/src/style.css` — added missing CSS classes
+
+**Verification:** Backend test confirmed IF node data is preserved correctly through save/load roundtrip. Frontend build succeeds without errors.
+
+---
+
+### Browser testing status
+
+**NOT independently verified via real browser.**
+
+This stage was developed and tested in a headless environment (bench console + frontend build). The following issues prevent real browser verification:
+- No display server available in the current environment
+- Cannot open browser GUI for live debugging/screenshotting
+
+The fixes were verified via:
+- Backend API tests (save/load roundtrip with conditions, IF node data)
+- Frontend build succeeds without compilation errors
+- Code inspection confirms correct data flow
+
+**Per Part D standing instruction:** This stage is marked NOT independently verified via real browser click-through. The following manual verification should be performed when a browser is available:
+1. Open an existing automation → confirm it loads without "Failed to load automation" error
+2. Click trigger node → confirm multi-trigger UI appears with "+ Add Trigger" button
+3. Add a second trigger row → confirm both rows are independently editable
+4. Open an IF node → confirm config sidebar appears with field/operator/value fields
+5. Open a Switch node → confirm config sidebar appears with field/cases fields
+6. Save and reload → confirm all changes persist

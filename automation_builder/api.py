@@ -63,22 +63,34 @@ def get_automation(name):
     doc = frappe.get_doc("Automation", name)
 
     # Get triggers from child table
-    triggers = []
-    for trigger in doc.triggers:
-        # Get conditions from grandchild table
-        conditions = []
-        for cond in trigger.conditions:
-            conditions.append({
-                "condition_field": cond.condition_field,
-                "condition_operator": cond.condition_operator,
-                "condition_value": cond.condition_value,
+    # NOTE: When AutomationTrigger is loaded as a child of Automation,
+    # Frappe does NOT populate grandchild table attributes (conditions).
+    # We must query them separately via SQL.
+    trigger_names = [t.name for t in doc.triggers]
+    conditions_map = {}
+    if trigger_names:
+        conditions_rows = frappe.db.sql(
+            """SELECT parent, condition_field, condition_operator, condition_value
+               FROM `tabAutomation Trigger Condition`
+               WHERE parent IN %s
+               ORDER BY parent, idx""",
+            (tuple(trigger_names),),
+            as_dict=True,
+        )
+        for row in conditions_rows:
+            conditions_map.setdefault(row.parent, []).append({
+                "condition_field": row.condition_field,
+                "condition_operator": row.condition_operator,
+                "condition_value": row.condition_value,
             })
 
+    triggers = []
+    for trigger in doc.triggers:
         triggers.append({
             "trigger_doctype": trigger.trigger_doctype,
             "trigger_event": trigger.trigger_event,
             "condition_logic": trigger.condition_logic or "All must match",
-            "conditions": conditions,
+            "conditions": conditions_map.get(trigger.name, []),
             # Legacy flat fields for backward compat display
             "condition_field": trigger.condition_field,
             "condition_operator": trigger.condition_operator,

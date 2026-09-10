@@ -732,38 +732,59 @@ async function save() {
 
     // Build triggers array from trigger node data
     const triggers = []
-    if (trigger?.data?.trigger_doctype) {
-      // Build conditions from the trigger node's condition data
-      const conditions = []
-      if (trigger.data.conditions && trigger.data.conditions.length) {
-        for (const cond of trigger.data.conditions) {
-          if (cond.condition_field) {
-            conditions.push({
-              condition_field: cond.condition_field,
-              condition_operator: cond.condition_operator || '=',
-              condition_value: cond.condition_value || '',
-            })
+    if (trigger?.data) {
+      // Check for multi-trigger format (trigger_rows array)
+      if (trigger.data.trigger_rows && trigger.data.trigger_rows.length) {
+        for (const triggerRow of trigger.data.trigger_rows) {
+          if (!triggerRow.trigger_doctype) continue
+          const conditions = []
+          for (const cond of (triggerRow.conditions || [])) {
+            if (cond.condition_field) {
+              conditions.push({
+                condition_field: cond.condition_field,
+                condition_operator: cond.condition_operator || '=',
+                condition_value: cond.condition_value || '',
+              })
+            }
           }
+          triggers.push({
+            trigger_doctype: triggerRow.trigger_doctype,
+            trigger_event: triggerRow.trigger_event || 'On Update',
+            condition_logic: triggerRow.condition_logic || 'All must match',
+            conditions: conditions,
+          })
         }
-      } else if (condition?.data?.condition_field) {
-        // Legacy single condition from graph condition node
-        conditions.push({
-          condition_field: condition.data.condition_field,
-          condition_operator: condition.data.condition_operator || '=',
-          condition_value: condition.data.condition_value || '',
+      } else if (trigger.data.trigger_doctype) {
+        // Legacy single-trigger format
+        const conditions = []
+        if (trigger.data.conditions && trigger.data.conditions.length) {
+          for (const cond of trigger.data.conditions) {
+            if (cond.condition_field) {
+              conditions.push({
+                condition_field: cond.condition_field,
+                condition_operator: cond.condition_operator || '=',
+                condition_value: cond.condition_value || '',
+              })
+            }
+          }
+        } else if (condition?.data?.condition_field) {
+          conditions.push({
+            condition_field: condition.data.condition_field,
+            condition_operator: condition.data.condition_operator || '=',
+            condition_value: condition.data.condition_value || '',
+          })
+        }
+
+        triggers.push({
+          trigger_doctype: trigger.data.trigger_doctype,
+          trigger_event: trigger.data.trigger_event || 'On Update',
+          condition_logic: trigger.data.condition_logic || 'All must match',
+          conditions: conditions,
+          condition_field: condition?.data?.condition_field || '',
+          condition_operator: condition?.data?.condition_operator || '=',
+          condition_value: condition?.data?.condition_value || '',
         })
       }
-
-      triggers.push({
-        trigger_doctype: trigger.data.trigger_doctype,
-        trigger_event: trigger.data.trigger_event || 'On Update',
-        condition_logic: trigger.data.condition_logic || 'All must match',
-        conditions: conditions,
-        // Legacy flat fields for backward compat
-        condition_field: condition?.data?.condition_field || '',
-        condition_operator: condition?.data?.condition_operator || '=',
-        condition_value: condition?.data?.condition_value || '',
-      })
     }
 
     const result = await saveAutomation({
@@ -851,6 +872,25 @@ onMounted(async () => {
             }))
           }
 
+          // Load trigger data from API response into the trigger node
+          // (graph_definition JSON doesn't store conditions — they live in the DB)
+          const trigger = nodes.value.find(n => n.id === 'trigger')
+          if (trigger && auto.triggers && auto.triggers.length) {
+            // Convert triggers array to trigger_rows format for multi-trigger support
+            trigger.data.trigger_rows = auto.triggers.map(t => ({
+              trigger_doctype: t.trigger_doctype || '',
+              trigger_event: t.trigger_event || 'On Update',
+              condition_logic: t.condition_logic || 'All must match',
+              conditions: t.conditions || [],
+            }))
+            // Also set legacy flat fields for backward compat
+            const firstTrigger = auto.triggers[0]
+            trigger.data.trigger_doctype = trigger.data.trigger_doctype || firstTrigger.trigger_doctype || ''
+            trigger.data.trigger_event = trigger.data.trigger_event || firstTrigger.trigger_event || 'On Update'
+            trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
+            trigger.data.conditions = firstTrigger.conditions || []
+          }
+
           const lastAction = [...nodes.value].filter(n => n.type === 'action').pop()
           const addY = lastAction ? lastAction.position.y + 170 : 790
           nodes.value.push({
@@ -876,20 +916,27 @@ onMounted(async () => {
         // Fallback: populate from triggers table
         const trigger = nodes.value.find(n => n.id === 'trigger')
         const condition = nodes.value.find(n => n.id === 'condition')
-        const firstTrigger = auto.triggers[0]
         if (trigger) {
+          // Convert triggers array to trigger_rows format
+          trigger.data.trigger_rows = auto.triggers.map(t => ({
+            trigger_doctype: t.trigger_doctype || '',
+            trigger_event: t.trigger_event || 'On Update',
+            condition_logic: t.condition_logic || 'All must match',
+            conditions: t.conditions || [],
+          }))
+          // Also set legacy flat fields
+          const firstTrigger = auto.triggers[0]
           trigger.data.trigger_doctype = firstTrigger.trigger_doctype || ''
           trigger.data.trigger_event = firstTrigger.trigger_event || 'On Update'
-          // Load condition group data
           trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
           trigger.data.conditions = firstTrigger.conditions || []
         }
         // Also populate legacy graph condition node if it exists
         if (condition) {
+          const firstTrigger = auto.triggers[0]
           condition.data.condition_field = firstTrigger.condition_field || ''
           condition.data.condition_operator = firstTrigger.condition_operator || '='
           condition.data.condition_value = firstTrigger.condition_value || ''
-        }
         }
       }
     } catch (e) {
