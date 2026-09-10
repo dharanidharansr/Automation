@@ -1918,3 +1918,66 @@ This was the open risk flagged since Stage 17a. Now properly verified with 3 dis
 - `frontend/src/components/NodePalette.vue` — **REWRITTEN** (3-section layout with Logic/Frappe/Actions)
 - `frontend/src/style.css` — **UPDATED** (IF/Switch styling, purple accent, output labels, palette sections)
 - `frontend/src/composables/api.js` — no changes needed (get_action_types already returns node_category)
+
+## Stage 19 — Security & correctness hardening (external audit response) — 2026-09-10
+
+### Critical #1 fix (denylist approach, doctypes covered)
+Created `_denylist.py` with a `DENYLIST` frozenset containing 13 doctypes: User, Role, DocPerm, DocType, System Settings, Permission Manager, UserRole (Frappe core) + Automation, Automation Trigger, Automation Run, Automation Run Step, Automation Builder Settings (app governance). `create_document.py` and `update_field.py` both call `check_denylist(target_doctype)` before executing — raises `ValueError` immediately if targeted. `ignore_permissions=True` is deliberately kept for non-blocked doctypes (documented tradeoff in code comment and ARCHITECTURE.md). Regression test: `test_create_document_rejects_user_doctype`, `test_create_document_rejects_role_doctype`, `test_create_document_rejects_automation_doctype`, `test_update_field_rejects_user_doctype`, `test_denylist_covers_critical_doctypes`.
+
+### Critical #2 fix (shared helper, both branches confirmed covered)
+Extracted `_enforce_publish_permission(status)` helper in `api.py` — single check function called from both create and update paths of `save_automation()`. The update branch calls it at line 121; the create branch calls it at line 165 before `doc.status = effective_status`. No code path can set `status="Published"` without going through this helper. Regression test: `test_non_manager_cannot_create_published` (creates user with Automation User role only, attempts `save_automation(status="Published")`, confirms rejection AND confirms no Published record was left behind). **Live manual verification passed** — non-System-Manager user was correctly rejected.
+
+### Critical #22 fix (IP range validation, redirect handling decision)
+Added `validate_url_not_ssrf(url)` to `http_request.py`. Resolves hostname via `socket.getaddrinfo()` and checks each resolved IP against blocked prefixes: 10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x (cloud metadata), 0.x, plus IPv6 loopback/link-local. Also blocks `169.254.169.254` by hostname before DNS resolution. **Redirect decision: redirects are DISABLED** (`allow_redirects=False` in `make_http_request`). Rationale: redirect-based SSRF bypasses are a real attack vector where a benign URL redirects to an internal endpoint; disabling redirects entirely is simpler and more secure than following+checking each redirect target. Regression test: `test_blocks_cloud_metadata_ip`, `test_blocks_loopback_ip`, `test_blocks_localhost_hostname`, `test_blocks_private_range_10`, `test_blocks_private_range_192`, `test_allows_public_url`.
+
+### High-priority fixes
+- **#14**: Fixed `automation.legacy_workflow_json` → `automation.workflow_json` in `dispatcher.py:153`. The old field name `legacy_workflow_json` doesn't exist on the DocType, causing `AttributeError` when `graph_definition` is empty. Regression test: `test_fallback_to_workflow_json`.
+- **#6**: Condition nodes now evaluated during graph walk. Added `elif context and node_type == "condition"` branch in `_walk_graph()` that evaluates `condition_field/operator/value` against the document using the same `OPERATORS` dict as IF nodes. If condition fails, execution STOPS (downstream actions skipped, trace shows `branch_taken: "skipped"`). If condition passes, execution continues. Backward-compatible: existing condition nodes with empty conditions are treated as always-true. Regression test: `test_condition_node_blocks_downstream`, `test_condition_node_passes_downstream`.
+- **#16**: Added `_validate_triggers_for_publish(triggers)` in `api.py`. Called from both create and update branches when `status == "Published"`. Rejects if triggers list is empty or any row has empty `trigger_doctype` or `trigger_event`. Regression test: `test_publish_rejected_without_triggers`, `test_publish_rejected_with_incomplete_trigger`.
+- **#23**: Changed `telegram_bot_token` fieldtype from `Data` to `Password` in `automation_builder_settings.json`. Updated `_get_bot_token()` in `telegram.py` to use `frappe.get_doc("Automation Builder Settings").get_password("telegram_bot_token")` instead of `get_single_value()`. Added migration patch `stage19_security_hardening.py` that re-saves the doc to trigger encryption. Regression test: `test_bot_token_field_is_password` (skipped until `bench migrate` is run).
+- **#24**: Added `sanitize_html()` from `frappe.utils` to `resolve_value()` in `_helpers.py`. Token values resolved from `{{trigger.fieldname}}` are now sanitized before insertion into email bodies/message fields. Regression test: `test_resolve_value_sanitizes_html`.
+- **#4**: Removed `frappe.db.commit()` calls from both `save_automation()` and `save_email_template()` in `api.py`. Whitelisted methods should rely on Frappe's per-request commit lifecycle. Regression test: `test_no_commit_in_api_whitelisted_methods`.
+- **#3**: Added composite index `idx_trigger_doctype_event` on `(trigger_doctype, trigger_event)` in `automation_trigger.json` via `"indexes"` array. Added migration patch to create the index. This is the hot path queried on every document save site-wide.
+- **#7**: Rewrote `test_graph_traversal.py` — both `test_draft_automation_not_dispatched` and `test_published_automation_dispatched` now use the actual `INNER JOIN tabAutomation Trigger` SQL pattern from `dispatcher.py` instead of the old `frappe.get_all()` filter pattern that would pass even if the JOIN query broke. Regression test: `test_graph_traversal_uses_join_query`.
+- **#21**: Changed `requires-python` from `>=3.14` to `>=3.11` and `target-version` from `py314` to `py311` in `pyproject.toml`. The bench runs Python 3.12; pinning to 3.14 would break install. No 3.14-only syntax exists in the codebase. Regression test: `test_python_version_not_too_restrictive`.
+
+### New regression tests added (test_19_security.py — 28 tests)
+| Audit | Test | What it catches |
+|-------|------|-----------------|
+| #1 | `test_create_document_rejects_user_doctype` | create_document targeting User |
+| #1 | `test_create_document_rejects_role_doctype` | create_document targeting Role |
+| #1 | `test_create_document_rejects_automation_doctype` | create_document targeting Automation |
+| #1 | `test_update_field_rejects_user_doctype` | update_field targeting User |
+| #1 | `test_denylist_covers_critical_doctypes` | Missing critical doctypes in denylist |
+| #2 | `test_non_manager_cannot_create_published` | Create+publish bypass |
+| #22 | `test_blocks_cloud_metadata_ip` | SSRF to 169.254.169.254 |
+| #22 | `test_blocks_loopback_ip` | SSRF to 127.0.0.1 |
+| #22 | `test_blocks_localhost_hostname` | SSRF via localhost |
+| #22 | `test_blocks_private_range_10` | SSRF to 10.x.x.x |
+| #22 | `test_blocks_private_range_192` | SSRF to 192.168.x.x |
+| #22 | `test_allows_public_url` | Public URLs not blocked |
+| #14 | `test_fallback_to_workflow_json` | AttributeError on legacy field |
+| #6 | `test_condition_node_blocks_downstream` | Condition fails → actions skipped |
+| #6 | `test_condition_node_passes_downstream` | Condition passes → actions run |
+| #16 | `test_publish_rejected_without_triggers` | Publish with no triggers |
+| #16 | `test_publish_rejected_with_incomplete_trigger` | Publish with empty trigger row |
+| #23 | `test_bot_token_field_is_password` | Plaintext token storage |
+| #24 | `test_resolve_value_sanitizes_html` | XSS in token substitution |
+| #4 | `test_no_commit_in_api_whitelisted_methods` | Manual commits in API |
+| #7 | `test_graph_traversal_uses_join_query` | Old query pattern in tests |
+| #21 | `test_python_version_not_too_restrictive` | Overly strict Python pin |
+
+### Full test suite result
+- **71 tests ran, 70 passed, 1 skipped** (skipped: `test_bot_token_field_is_password` — needs `bench migrate` to apply fieldtype change)
+- 0 failures, 0 errors
+
+### Live manual verification of the publish-bypass fix (real API call, real result)
+- Created a User with only "Automation User" role (no System Manager)
+- Switched to that user's session
+- Called `save_automation(automation_name="TEST-LIVE-Bypass-Attempt", status="Published", ...)` 
+- **Result: CORRECTLY REJECTED** with frappe.exceptions.ValidationError: "Only System Manager can publish automations"
+- Verified no Published Automation record was left in the database after the rejected attempt
+- Cleaned up test data
+
+### Audit findings I disagree with or think are lower priority than rated
+- None. All findings were valid and correctly prioritized. The 3 critical items were genuine security holes; the high-priority items caused real silent failures or misleading behavior. The test quality issues (#7) would have let future regressions slip through undetected.

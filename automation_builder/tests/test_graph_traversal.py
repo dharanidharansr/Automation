@@ -138,8 +138,6 @@ class TestDraftAutomationExecution(IntegrationTestCase):
         auto.automation_name = "TEST-DraftNotExecuted"
         auto.status = "Draft"
         auto.enabled = 1
-        auto.trigger_doctype = "ToDo"
-        auto.trigger_event = "On Update"
         auto.graph_definition = json.dumps({
             "nodes": [
                 {"id": "trigger", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {}},
@@ -156,17 +154,17 @@ class TestDraftAutomationExecution(IntegrationTestCase):
         auto.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Query automations as the dispatcher would
-        automations = frappe.get_all(
-            "Automation",
-            filters={
-                "enabled": 1,
-                "status": "Published",
-                "trigger_doctype": "ToDo",
-                "trigger_event": "On Update",
-            },
-            fields=["name"],
-        )
+        # Query automations using the actual JOIN pattern from dispatcher.py
+        automations = frappe.db.sql("""
+            SELECT DISTINCT a.name
+            FROM `tabAutomation` a
+            INNER JOIN `tabAutomation Trigger` at
+                ON at.parent = a.name
+            WHERE a.enabled = 1
+                AND a.status = 'Published'
+                AND at.trigger_doctype = %s
+                AND at.trigger_event = %s
+        """, ("ToDo", "On Update"), as_dict=True)
 
         # Draft automation should not appear
         automation_names = [a.name for a in automations]
@@ -179,8 +177,6 @@ class TestDraftAutomationExecution(IntegrationTestCase):
         auto.automation_name = "TEST-PublishedExecuted"
         auto.status = "Published"
         auto.enabled = 1
-        auto.trigger_doctype = "ToDo"
-        auto.trigger_event = "On Update"
         auto.graph_definition = json.dumps({
             "nodes": [
                 {"id": "trigger", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {}},
@@ -197,17 +193,17 @@ class TestDraftAutomationExecution(IntegrationTestCase):
         auto.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Query automations as the dispatcher would
-        automations = frappe.get_all(
-            "Automation",
-            filters={
-                "enabled": 1,
-                "status": "Published",
-                "trigger_doctype": "ToDo",
-                "trigger_event": "On Update",
-            },
-            fields=["name"],
-        )
+        # Query automations using the actual JOIN pattern from dispatcher.py
+        automations = frappe.db.sql("""
+            SELECT DISTINCT a.name
+            FROM `tabAutomation` a
+            INNER JOIN `tabAutomation Trigger` at
+                ON at.parent = a.name
+            WHERE a.enabled = 1
+                AND a.status = 'Published'
+                AND at.trigger_doctype = %s
+                AND at.trigger_event = %s
+        """, ("ToDo", "On Update"), as_dict=True)
 
         # Published automation should appear
         automation_names = [a.name for a in automations]

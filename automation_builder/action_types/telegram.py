@@ -29,9 +29,13 @@ CONFIG_SCHEMA = [
 
 
 def _get_bot_token():
-    """Retrieve the Telegram bot token from Automation Builder Settings."""
+    """Retrieve the Telegram bot token from Automation Builder Settings.
+
+    Uses get_password() to retrieve from the encrypted store, not a
+    plaintext Data field read.
+    """
     try:
-        token = frappe.get_single_value("Automation Builder Settings", "telegram_bot_token")
+        token = frappe.get_doc("Automation Builder Settings").get_password("telegram_bot_token")
     except Exception:
         return None
     return token or None

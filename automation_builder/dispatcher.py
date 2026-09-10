@@ -150,7 +150,7 @@ def execute_automation(automation_name, ref_doctype, ref_name):
         )
 
         # Use graph_definition (new format), fall back to workflow_json (legacy)
-        graph_json = automation.graph_definition or automation.legacy_workflow_json
+        graph_json = automation.graph_definition or automation.workflow_json
         if not graph_json:
             run.status = "Failed"
             run.error = "No graph_definition found on automation"
@@ -365,6 +365,44 @@ def _walk_graph(graph, start_id, context=None):
                 # Fallback: follow first edge
                 next_id = outgoing[0][1]
             current_id = next_id
+        elif context and node_type == "condition":
+            # Condition nodes evaluate like IF but have a single output.
+            # If the condition matches, execution continues downstream.
+            # If it doesn't match, execution STOPS (downstream actions are skipped).
+            node_data = node.get("data", {})
+            cond_field = node_data.get("condition_field", "")
+            cond_operator = node_data.get("condition_operator", "")
+            cond_value = node_data.get("condition_value", "")
+
+            if cond_field and cond_operator:
+                doc = context.get("doc")
+                actual = doc.get(cond_field) if doc else None
+                comparator = OPERATORS.get(cond_operator)
+                matched = False
+                if comparator:
+                    expected = cond_value
+                    if cond_operator in (">", "<", ">=", "<="):
+                        try:
+                            actual = float(actual)
+                            expected = float(expected)
+                        except (TypeError, ValueError):
+                            pass
+                    matched = comparator(actual, expected)
+
+                trace.append({
+                    "type": "branch",
+                    "node_id": current_id,
+                    "node_type": "condition",
+                    "branch_taken": "condition-out" if matched else "skipped",
+                    "output": f"Condition {cond_field} {cond_operator} '{cond_value}' -> {'TRUE' if matched else 'FALSE'} (action skipped)",
+                })
+
+                if not matched:
+                    # Condition failed — stop execution, downstream actions skipped
+                    break
+
+            # Follow the single outgoing edge (condition matched or no condition set)
+            current_id = outgoing[0][1] if outgoing else None
         else:
             # Non-branching node: action, trigger, condition
             if node_type == "action" and node.get("data", {}).get("action_type"):

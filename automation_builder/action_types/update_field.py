@@ -3,6 +3,7 @@
 import frappe
 
 from automation_builder.action_types import register_action_type
+from automation_builder.action_types._denylist import check_denylist
 from automation_builder.action_types._helpers import resolve_value
 
 CONFIG_SCHEMA = [
@@ -84,6 +85,9 @@ def execute(context, config):
         target_doc = frappe.get_doc(linked_doctype, linked_name)
     else:
         target_doc = doc
+
+    # Security: refuse to target sensitive core/governance doctypes
+    check_denylist(target_doc.doctype)
 
     updated_fields = []
     for mapping in field_mapping:

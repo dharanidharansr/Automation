@@ -4,6 +4,37 @@ import frappe
 from frappe import _
 
 
+def _enforce_publish_permission(status):
+    """Enforce that only System Manager can set status to Published.
+
+    Called from BOTH create and update paths of save_automation to ensure
+    no code path can set status="Published" without this check.
+    """
+    if status == "Published" and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Only System Manager can publish automations"))
+
+
+def _validate_triggers_for_publish(triggers):
+    """Require at least one valid trigger row when publishing.
+
+    Called when status is being set to Published. An automation with no
+    trigger data would be a silent no-op — Published but never fires.
+    """
+    if not triggers:
+        frappe.throw(
+            _("Cannot publish: at least one trigger with trigger_doctype and "
+              "trigger_event is required.")
+        )
+    for i, trigger in enumerate(triggers):
+        doctype = trigger.get("trigger_doctype") if isinstance(trigger, dict) else getattr(trigger, "trigger_doctype", None)
+        event = trigger.get("trigger_event") if isinstance(trigger, dict) else getattr(trigger, "trigger_event", None)
+        if not doctype or not event:
+            frappe.throw(
+                _("Cannot publish: trigger row {0} is missing trigger_doctype "
+                  "or trigger_event.").format(i + 1)
+            )
+
+
 @frappe.whitelist()
 def get_doctype_fields(doctype):
     """Return field list for a given DocType."""
@@ -87,9 +118,16 @@ def save_automation(
 
         # Handle status with permission check
         if status is not None:
-            # Only System Manager can publish automations
-            if status == "Published" and "System Manager" not in frappe.get_roles():
-                frappe.throw(_("Only System Manager can publish automations"))
+            _enforce_publish_permission(status)
+            if status == "Published":
+                # Validate triggers exist before publishing
+                effective_triggers = triggers if triggers is not None else [
+                    {"trigger_doctype": t.trigger_doctype, "trigger_event": t.trigger_event,
+                     "condition_field": t.condition_field, "condition_operator": t.condition_operator,
+                     "condition_value": t.condition_value}
+                    for t in doc.triggers
+                ]
+                _validate_triggers_for_publish(effective_triggers)
             doc.status = status
 
         doc.enabled = int(enabled)
@@ -123,7 +161,12 @@ def save_automation(
     else:
         doc = frappe.new_doc("Automation")
         doc.automation_name = automation_name
-        doc.status = status or "Draft"
+        # Enforce publish permission BEFORE setting status (create path)
+        effective_status = status or "Draft"
+        _enforce_publish_permission(effective_status)
+        if effective_status == "Published":
+            _validate_triggers_for_publish(triggers or [])
+        doc.status = effective_status
         doc.enabled = int(enabled)
         doc.description = description
 
@@ -152,7 +195,6 @@ def save_automation(
 
         doc.insert(ignore_permissions=True)
 
-    frappe.db.commit()
     return {"name": doc.name, "automation_name": doc.automation_name}
 
 
@@ -273,5 +315,4 @@ def save_email_template(name=None, template_name=None, subject=None, body=None):
         doc.body = body
         doc.insert(ignore_permissions=True)
 
-    frappe.db.commit()
     return {"name": doc.name, "template_name": doc.template_name}

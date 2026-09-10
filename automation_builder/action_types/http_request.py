@@ -3,10 +3,15 @@
 This module also exposes ``make_http_request()`` as a reusable helper so that
 other action types (e.g. Telegram) can issue HTTP calls without duplicating
 the request-building, error-handling, and logging logic.
+
+SSRF protection: before making any request, the target URL's host is resolved
+and checked against private/link-loopback/cloud-metadata IP ranges. Redirects
+are disabled — the initial response is returned as-is.
 """
 
 import json
-from urllib.parse import urlencode
+import socket
+from urllib.parse import urlparse, urlencode
 
 import frappe
 import requests as _requests
@@ -43,10 +48,89 @@ CONFIG_SCHEMA = [
 
 
 # ---------------------------------------------------------------------------
+# SSRF protection — IP range validation
+# ---------------------------------------------------------------------------
+# RFC1918 private ranges + loopback + link-local + cloud metadata
+_BLOCKED_PREFIXES = [
+    "10.",          # 10.0.0.0/8
+    "172.16.",      # 172.16.0.0/12 (simplified to /16 blocks)
+    "172.17.",
+    "172.18.",
+    "172.19.",
+    "172.20.",
+    "172.21.",
+    "172.22.",
+    "172.23.",
+    "172.24.",
+    "172.25.",
+    "172.26.",
+    "172.27.",
+    "172.28.",
+    "172.29.",
+    "172.30.",
+    "172.31.",
+    "192.168.",     # 192.168.0.0/16
+    "127.",         # 127.0.0.0/8 loopback
+    "169.254.",     # 169.254.0.0/16 link-local + cloud metadata
+    "0.",           # 0.0.0.0/8
+]
+
+
+def _is_blocked_ip(ip_str):
+    """Return True if the IP string is in a blocked private/reserved range."""
+    for prefix in _BLOCKED_PREFIXES:
+        if ip_str.startswith(prefix):
+            return True
+    # IPv6 loopback
+    if ip_str == "::1" or ip_str.startswith("fc") or ip_str.startswith("fd"):
+        return True
+    return False
+
+
+def validate_url_not_ssrf(url):
+    """Validate that a URL does not target private/internal IP ranges.
+
+    Resolves the hostname and checks each resolved IP against the denylist.
+    Raises ValueError if any IP is blocked. Returns the hostname on success.
+
+    This is called BEFORE any network I/O is attempted.
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"Invalid URL: no hostname found in '{url}'")
+
+    # Block cloud metadata endpoint by hostname too (before DNS resolution)
+    if hostname == "169.254.169.254":
+        raise ValueError(
+            f"SSRF blocked: '{hostname}' is the cloud metadata endpoint"
+        )
+
+    try:
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+    except socket.gaierror:
+        raise ValueError(f"SSRF blocked: cannot resolve hostname '{hostname}'")
+
+    for family, _, _, _, sockaddr in resolved:
+        ip = sockaddr[0]
+        if _is_blocked_ip(ip):
+            raise ValueError(
+                f"SSRF blocked: hostname '{hostname}' resolves to private/reserved IP {ip}"
+            )
+
+    return hostname
+
+
+# ---------------------------------------------------------------------------
 # Shared helper — used by http_request.execute() and telegram.py
 # ---------------------------------------------------------------------------
 def make_http_request(method, url, headers=None, body=None, json_payload=None, timeout=30):
     """Issue an HTTP request and return a result dict.
+
+    SSRF protection: ``validate_url_not_ssrf()`` is called before any
+    network I/O. Redirects are DISABLED (allow_redirects=False) — the
+    initial response is returned as-is. This prevents redirect-based SSRF
+    bypasses where a benign URL redirects to an internal endpoint.
 
     Args:
         method: HTTP method string (GET, POST, ...).
@@ -61,12 +145,16 @@ def make_http_request(method, url, headers=None, body=None, json_payload=None, t
         dict with keys: status_code, response_body (truncated), ok (bool).
 
     Raises:
+        ValueError on SSRF violation.
         requests.exceptions.RequestException on connection errors.
     """
+    # SSRF check — BEFORE any network call
+    validate_url_not_ssrf(url)
+
     headers = headers or {}
     method = (method or "GET").upper()
 
-    kwargs = {"headers": headers, "timeout": timeout}
+    kwargs = {"headers": headers, "timeout": timeout, "allow_redirects": False}
 
     if method in ("POST", "PUT", "PATCH"):
         if json_payload is not None:

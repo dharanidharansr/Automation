@@ -9,14 +9,16 @@
       "fieldtype": "Link",
       "label": "Trigger DocType",
       "options": "DocType",
-      "reqd": 1
+      "reqd": 1,
+      "index": 1
     },
     {
       "fieldname": "trigger_event",
       "fieldtype": "Select",
       "label": "Trigger Event",
       "options": "After Insert\nOn Update\nOn Submit\nOn Cancel",
-      "reqd": 1
+      "reqd": 1,
+      "index": 1
     },
     {
       "fieldname": "condition_field",
@@ -34,5 +36,8 @@
       "fieldtype": "Data",
       "label": "Condition Value"
     }
+  ],
+  "indexes": [
+    {"fields": ["trigger_doctype", "trigger_event"], "unique": 0}
   ]
 }

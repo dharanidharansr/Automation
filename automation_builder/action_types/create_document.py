@@ -3,6 +3,7 @@
 import frappe
 
 from automation_builder.action_types import register_action_type
+from automation_builder.action_types._denylist import check_denylist
 from automation_builder.action_types._helpers import resolve_value
 
 CONFIG_SCHEMA = [
@@ -41,6 +42,9 @@ def execute(context, config):
 
     if not frappe.db.exists("DocType", target_doctype):
         raise ValueError(f"DocType '{target_doctype}' does not exist")
+
+    # Security: refuse to target sensitive core/governance doctypes
+    check_denylist(target_doctype)
 
     doc = frappe.new_doc(target_doctype)
     field_mapping = config.get("field_mapping", [])

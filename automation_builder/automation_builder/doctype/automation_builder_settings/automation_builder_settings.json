@@ -13,12 +13,12 @@
    "fieldtype": "Section Break",
    "label": "Telegram"
   },
-  {
-   "fieldname": "telegram_bot_token",
-    "fieldtype": "Data",
-    "label": "Bot Token",
-    "description": "The bot token from @BotFather. If left blank, Telegram actions run in mock mode."
-  }
+   {
+    "fieldname": "telegram_bot_token",
+     "fieldtype": "Password",
+     "label": "Bot Token",
+     "description": "The bot token from @BotFather. If left blank, Telegram actions run in mock mode."
+   }
  ],
  "index_web_pages_for_search": 0,
  "issingle": 1,
