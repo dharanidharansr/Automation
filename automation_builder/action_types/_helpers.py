@@ -34,6 +34,9 @@ def resolve_value(raw_value, context):
 
     def _replace(match):
         field = match.group(1)
+        # Special case: __trigger_doctype__ resolves from context, not the document
+        if field == TRIGGER_DOCTYPE_FIELD:
+            return str(context.get("trigger_doctype", "") or "")
         if doc is None:
             return ""
         try:
