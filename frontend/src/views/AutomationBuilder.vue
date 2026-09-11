@@ -254,7 +254,8 @@
         :node-type="selectedNodeType"
         :node-data="selectedNodeData"
         :node-id="selectedNodeId"
-        :trigger-doctype="triggerDoctype"
+        :trigger-doctype="selectedNodeTriggerDoctype"
+        :trigger-doctypes="triggerDoctypes"
         @update="updateNodeData"
         @close="selectedNode = null"
         @add-action="addActionNode"
@@ -396,6 +397,37 @@ const selectedNodeId = ref('')
 const triggerDoctype = computed(() => {
   const trigger = nodes.value.find(n => n.id === 'trigger')
   return trigger?.data?.trigger_doctype || ''
+})
+
+const triggerDoctypes = computed(() => {
+  return nodes.value
+    .filter(n => n.type === 'trigger' && n.data?.trigger_doctype)
+    .map(n => n.data.trigger_doctype)
+})
+
+function findUpstreamTriggerDoctype(nodeId) {
+  const visited = new Set()
+  const queue = [nodeId]
+  while (queue.length) {
+    const current = queue.shift()
+    if (visited.has(current)) continue
+    visited.add(current)
+    const node = nodes.value.find(n => n.id === current)
+    if (node && node.type === 'trigger') {
+      return node.data?.trigger_doctype || ''
+    }
+    for (const e of edges.value) {
+      if (e.target === current && !visited.has(e.source)) {
+        queue.push(e.source)
+      }
+    }
+  }
+  return ''
+}
+
+const selectedNodeTriggerDoctype = computed(() => {
+  if (!selectedNodeId.value) return triggerDoctype.value
+  return findUpstreamTriggerDoctype(selectedNodeId.value) || triggerDoctype.value
 })
 
 const canPublish = ref(false)
