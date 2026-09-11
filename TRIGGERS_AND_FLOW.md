@@ -218,38 +218,86 @@ flowchart TD
 
 ---
 
-## 6. Doctype Branching via IF + "Triggering Doctype"
+## 6. Doctype Branching via IF/Switch + "Triggering Doctype"
 
-### Current state: no built-in pseudo-field
+### The pseudo-field: `__trigger_doctype__`
 
-**There is currently no "Triggering Doctype" pseudo-field in the IF node config UI.**
-The IF node's field picker (`ConfigPanel.vue:64-67`) loads real fields from the trigger
-doctype via `getDoctypeFields()`. There is no synthetic option for `trigger_doctype` or
-`ref_doctype`.
+The IF, Switch, and Condition nodes include a synthetic field called **"Triggering Doctype"**
+(value: `__trigger_doctype__`) in their field pickers, listed under an "Automation" optgroup
+alongside real document fields.
 
-The `trigger_doctype` value **is** available in the execution context
-(`dispatcher.py:274`: `context["trigger_doctype"] = ref_doctype`), but the IF node's
-`evaluate_branch` function (`if_condition.py:46-77`) evaluates `doc.get(field)` — it reads
-fields from the document, not from the context dict. So there is no way to branch on the
-triggering doctype using the current IF node.
+This is not a real field on any document. At evaluation time, it resolves to
+`context["trigger_doctype"]` — the doctype string of the document that triggered this run
+(e.g., `"Lead"`, `"ToDo"`). The underlying data was always available in the execution
+context (`dispatcher.py:274`); this feature simply exposes it as a choosable field.
 
-### Workaround: doctype-specific field check
+### How it works
 
-Since different doctypes have different fields, you can branch indirectly by checking for a
-field that exists on one doctype but not the other:
+The sentinel constant `TRIGGER_DOCTYPE_FIELD = "__trigger_doctype__"` is defined in
+`_helpers.py` and imported by `if_condition.py`, `switch_case.py`, and `dispatcher.py`.
+
+**In IF/Switch nodes** (`if_condition.py:58-60`, `switch_case.py:44-46`):
+```python
+if field == TRIGGER_DOCTYPE_FIELD:
+    actual = context.get("trigger_doctype", "")
+else:
+    actual = doc.get(field) if doc else None
+```
+
+**In Condition graph nodes** (`dispatcher.py:60-61`):
+```python
+if field == TRIGGER_DOCTYPE_FIELD and context is not None:
+    actual = context.get("trigger_doctype", "")
+else:
+    actual = doc.get(field) if doc else None
+```
+
+The resolved value (a string like `"Lead"`) is compared against the configured value using
+the normal operator — no special handling needed beyond the initial resolution.
+
+### Worked example: IF branching on triggering doctype
 
 ```
-IF: lead_name is set  →  True branch: Lead-specific actions
-                       →  False branch: ToDo-specific actions (or fallthrough)
+Automation: "Lead + ToDo Follow-up"
+  Triggers: Lead / After Insert, ToDo / After Insert
+
+  Graph:
+    trigger ──> IF (__trigger_doctype__ = "Lead")
+                   ├─ True ──> Action A (scoped to Lead)
+                   └─ False ──> Action B (scoped to ToDo)
 ```
 
-A Lead document has `lead_name`, so the condition evaluates to TRUE. A ToDo document does not
-have `lead_name`, so `doc.get("lead_name")` returns `None` and the condition evaluates to
-FALSE.
+- **Lead inserted** → `context["trigger_doctype"]` = `"Lead"` → IF evaluates
+  `"Lead" = "Lead"` → TRUE → Action A runs
+- **ToDo inserted** → `context["trigger_doctype"]` = `"ToDo"` → IF evaluates
+  `"ToDo" = "Lead"` → FALSE → Action B runs
 
-This is not clean, and a proper "Triggering Doctype" pseudo-field would be better. If this
-feature is added later, it would likely be a synthetic field in the IF node's field picker
-that resolves to `context["trigger_doctype"]` instead of `doc.get(field)`.
+### Worked example: Switch branching for 3+ doctypes
+
+```
+Automation: "Multi-doctype router"
+  Triggers: Lead / After Insert, ToDo / After Insert, Note / After Insert
+
+  Graph:
+    trigger ──> Switch (__trigger_doctype__)
+                   ├─ case-0 ("Lead") ──> Lead-specific action
+                   ├─ case-1 ("ToDo") ──> ToDo-specific action
+                   └─ default ──> Generic action (Note or unknown)
+```
+
+Switch is the more natural fit when you have 3+ trigger doctypes and want one branch each.
+
+### Historical workaround (pre-Stage 23)
+
+Before this feature existed, the only way to branch by doctype was to check for a field
+that exists on one doctype but not the other:
+
+```
+IF: lead_name is set  →  True: Lead path, False: ToDo path
+```
+
+This worked but was fragile and unclear. The `__trigger_doctype__` pseudo-field is the
+clean solution.
 
 ---
 
@@ -265,7 +313,7 @@ Automation: "Lead + ToDo Follow-up"
     Row 2: ToDo / After Insert / Conditions: (none)
 
   Graph:
-    trigger ──> IF (lead_name is set)
+    trigger ──> IF (__trigger_doctype__ = "Lead")
                    ├─ True ──> Update Field (scoped to Lead)
                    │             target: Same Document
                    │             field: status = "Contacted"
@@ -282,10 +330,11 @@ Automation: "Lead + ToDo Follow-up"
    evaluated against the Lead (ToDo fields don't exist) → **FALSE**. Overall: **TRUE**.
 4. `frappe.enqueue(execute_automation, ...)`
 5. Graph walk starts at trigger node
-6. IF node: `lead_name` → `"Test Lead"` (not null) → **TRUE** → follows `if-true` edge
+6. IF node: `__trigger_doctype__` → `"Lead"` (from `context["trigger_doctype"]`) →
+   `"Lead" = "Lead"` → **TRUE** → follows `if-true` edge
 7. Update Field action: `trigger_doctype_select = "Lead"`, `ref_doctype = "Lead"` → match,
    executes. Sets `status = "Contacted"` on the Lead.
-8. Run status: **Success**. Log: `[{"step_type": "if_condition", "status": "Success", ...}, {"step_type": "update_field", "status": "Success", ...}]`
+8. Run status: **Success**. Log: `[{"step_type": "if", "status": "Success", ...}, {"step_type": "update_field", "status": "Success", ...}]`
 
 ### Case 2: ToDo inserted (any description)
 
@@ -296,10 +345,11 @@ Automation: "Lead + ToDo Follow-up"
    (ToDo/After Insert, no conditions) → **TRUE**. Overall: **TRUE**.
 4. `frappe.enqueue(execute_automation, ...)`
 5. Graph walk starts at trigger node
-6. IF node: `lead_name` → `None` (ToDo has no such field) → **FALSE** → follows `if-false` edge
+6. IF node: `__trigger_doctype__` → `"ToDo"` (from `context["trigger_doctype"]`) →
+   `"ToDo" = "Lead"` → **FALSE** → follows `if-false` edge
 7. Update Field action: `trigger_doctype_select = "ToDo"`, `ref_doctype = "ToDo"` → match,
    executes. Sets `description = "Auto follow-up"` on the ToDo.
-8. Run status: **Success**. Log: `[{"step_type": "if_condition", "status": "Success", ...}, {"step_type": "update_field", "status": "Success", ...}]`
+8. Run status: **Success**. Log: `[{"step_type": "if", "status": "Success", ...}, {"step_type": "update_field", "status": "Success", ...}]`
 
 ### Case 3: Lead inserted with `lead_source = "Campaign"`
 
@@ -313,13 +363,13 @@ Automation: "Lead + ToDo Follow-up"
 For Case 1:
 | Step | Type | Status | Output |
 |---|---|---|---|
-| 1 | if_condition | Success | `IF lead_name = 'Test Lead' -> TRUE (actual: 'Test Lead')` |
+| 1 | if | Success | `IF __trigger_doctype__ = 'Lead' -> TRUE (actual: 'Lead')` |
 | 2 | update_field | Success | `Updated Lead L-00001: status` |
 
 For Case 2:
 | Step | Type | Status | Output |
 |---|---|---|---|
-| 1 | if_condition | Success | `IF lead_name = '' -> FALSE (actual: None)` |
+| 1 | if | Success | `IF __trigger_doctype__ = 'Lead' -> FALSE (actual: 'ToDo')` |
 | 2 | update_field | Success | `Updated ToDo TD-00001: description` |
 
 ---
@@ -338,9 +388,8 @@ regression in the dispatch path would have gone undetected.
 | Test name | What it exercises |
 |---|---|
 | `test_full_path_skip_via_on_doc_event` | `doc.insert()` → `on_doc_event()` → SQL dispatch query → `frappe.enqueue` (patched sync) → `execute_automation()` → graph walk → `_execute_action` skip check. Tests both the ToDo (skips) and Lead (executes) branches. |
-
-This is the **only** test that exercises the complete chain from document event to action
-execution for the skip-detection feature.
+| `test_if_trigger_doctype_branch` | Same full path through IF node with `__trigger_doctype__` pseudo-field. Lead insert → IF TRUE → lead action. ToDo insert → IF FALSE → todo action. |
+| `test_switch_trigger_doctype_branch` | Same full path through Switch node with `__trigger_doctype__`. Lead → case-0. ToDo → case-1. Note → default. |
 
 ### What is covered by narrower/unit-level tests
 
@@ -360,6 +409,9 @@ execution for the skip-detection feature.
   tests `_evaluate_trigger_conditions` directly but does not exercise the full path.
 - **Multiple trigger rows with conditions**: no test creates an automation with two trigger
   rows (different doctypes, each with conditions) and fires both paths end-to-end.
+- **Condition graph node with `__trigger_doctype__`**: the pseudo-field works for IF and
+  Switch (full-path tested) and the backend supports it for Condition nodes, but no
+  full-path test exercises the Condition node variant.
 - **Frontend rendering**: no automated test verifies the `trigger_doctype_select` dropdown
   renders, the "Any" hint text appears, or the field picker updates when the selection
   changes. (No display server available for browser testing.)

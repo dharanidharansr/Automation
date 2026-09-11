@@ -2241,3 +2241,29 @@ The fixes were verified via:
 ## TRIGGERS_AND_FLOW.md — Documentation-only stage
 
 Created `TRIGGERS_AND_FLOW.md` at repo root: a focused deep-dive on the trigger/multi-trigger/cross-doctype model (separate from ARCHITECTURE.md's broader system overview). Covers: trigger rows with OR semantics, condition_logic (All/Any), all 12 operators, cross-doctype field-reference problem, `trigger_doctype_select` three modes (specific/any/unset), shared vs per-doctype patterns with Mermaid diagram, IF doctype branching (no pseudo-field exists — workaround documented), full worked example, and testing coverage notes including the full-path vs direct-call distinction. Every claim verified against actual source code.
+
+---
+
+## Stage 23 — "Triggering Doctype" pseudo-field
+
+Built the `__trigger_doctype__` pseudo-field for IF/Switch/Condition nodes, enabling doctype branching without fragile workarounds.
+
+**Backend changes:**
+- `_helpers.py`: Added `TRIGGER_DOCTYPE_FIELD = "__trigger_doctype__"` constant
+- `if_condition.py`: Sentinel check in `evaluate_branch()` — resolves from `context["trigger_doctype"]` instead of `doc.get(field)`
+- `switch_case.py`: Same sentinel check in `evaluate_branch()`
+- `dispatcher.py`: Added `context=None` parameter to `_evaluate_single_condition()`, sentinel check for Condition graph nodes, passed `context=context` at condition node evaluation (line 496)
+
+**Frontend changes:**
+- `ConfigPanel.vue`: Added `realFields` computed (filters out pseudo-field), appended pseudo-field to `fields` in `loadFields()`, wrapped all three field pickers (Condition, IF, Switch) in `<optgroup>` with "Document Fields" and "Automation" groups
+
+**Tests (2 new, full-path):**
+- `test_if_trigger_doctype_branch`: Lead insert → IF `__trigger_doctype__` = "Lead" → TRUE → lead action. ToDo insert → FALSE → todo action. **Path:** `doc.insert()` → hooks → `on_doc_event()` → `frappe.enqueue` (patched sync) → `execute_automation()` → `_walk_graph()` → `if_condition.evaluate_branch()`
+- `test_switch_trigger_doctype_branch`: Lead → case-0. ToDo → case-1. Note → default. **Same real path** through `switch_case.evaluate_branch()`
+
+**Documentation:**
+- `TRIGGERS_AND_FLOW.md` Section 6 rewritten as "feature exists" with worked examples for IF and Switch
+- Section 7 worked example updated to use pseudo-field
+- Section 8 testing notes updated with new full-path tests
+
+**Status:** 111 tests pass, frontend builds clean.

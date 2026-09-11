@@ -310,7 +310,7 @@ class TestBranchingExecution(IntegrationTestCase):
         execute_automation(auto.name, "ToDo", todo.name)
 
         # Check Automation Run was created
-        runs = frappe.get_all("Automation Run", filters={"automation": auto.name}, fields=["name", "status", "log", "steps"])
+        runs = frappe.get_all("Automation Run", filters={"automation": auto.name}, fields=["name", "status", "log"])
         self.assertTrue(len(runs) > 0)
         run = runs[0]
         # Status may be "Failed" if Telegram sends to non-existent chat — that's OK for testing branch selection
@@ -558,3 +558,212 @@ class TestGraphSaveLoadWithBranching(IntegrationTestCase):
         self.assertEqual(len(switch_edges), 3)
         handles = {e["sourceHandle"] for e in switch_edges}
         self.assertEqual(handles, {"case-0", "case-1", "default"})
+
+
+class TestTriggerDoctypePseudoField(IntegrationTestCase):
+    """Test the __trigger_doctype__ pseudo-field in IF and Switch nodes.
+
+    Both tests exercise the REAL dispatch path:
+        doc.insert() -> hooks.py -> on_doc_event() -> SQL dispatch query
+        -> frappe.enqueue (patched synchronous) -> execute_automation()
+        -> graph walk -> evaluate_branch()
+    """
+
+    def setUp(self):
+        frappe.db.sql("DELETE FROM `tabAutomation Run Step` WHERE parent IN (SELECT name FROM `tabAutomation Run` WHERE automation LIKE 'TEST-PseudoField%')")
+        frappe.db.sql("DELETE FROM `tabAutomation Run` WHERE automation LIKE 'TEST-PseudoField%'")
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger Condition` WHERE parent IN (SELECT name FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-PseudoField%')")
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-PseudoField%'")
+        frappe.db.sql("DELETE FROM `tabAutomation` WHERE name LIKE 'TEST-PseudoField%'")
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.sql("DELETE FROM `tabAutomation Run Step` WHERE parent IN (SELECT name FROM `tabAutomation Run` WHERE automation LIKE 'TEST-PseudoField%')")
+        frappe.db.sql("DELETE FROM `tabAutomation Run` WHERE automation LIKE 'TEST-PseudoField%'")
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger Condition` WHERE parent IN (SELECT name FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-PseudoField%')")
+        frappe.db.sql("DELETE FROM `tabAutomation Trigger` WHERE parent LIKE 'TEST-PseudoField%'")
+        frappe.db.sql("DELETE FROM `tabAutomation` WHERE name LIKE 'TEST-PseudoField%'")
+        frappe.db.commit()
+
+    def test_if_trigger_doctype_branch(self):
+        """FULL REAL PATH: IF node with __trigger_doctype__ branches on triggering doctype.
+
+        Path: doc.insert() -> hooks -> on_doc_event -> enqueue -> execute_automation
+              -> _walk_graph -> if_condition.evaluate_branch -> checks __trigger_doctype__
+        """
+        from unittest.mock import patch
+
+        auto = frappe.get_doc({
+            "doctype": "Automation",
+            "automation_name": "TEST-PseudoField-IF",
+            "status": "Published",
+            "enabled": 1,
+            "triggers": [
+                {"trigger_doctype": "Lead", "trigger_event": "After Insert"},
+                {"trigger_doctype": "ToDo", "trigger_event": "After Insert"},
+            ],
+            "graph_definition": json.dumps({
+                "nodes": [
+                    {"id": "trigger", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {}},
+                    {"id": "if-1", "type": "if", "position": {"x": 0, "y": 150},
+                     "data": {"field_to_check": "__trigger_doctype__", "operator": "=", "value": "Lead"}},
+                    {"id": "action-lead", "type": "action", "position": {"x": -100, "y": 300},
+                     "data": {"action_type": "telegram", "chat_id": "TEST", "message": "LEAD BRANCH"}},
+                    {"id": "action-todo", "type": "action", "position": {"x": 100, "y": 300},
+                     "data": {"action_type": "telegram", "chat_id": "TEST", "message": "TODO BRANCH"}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "if-1", "sourceHandle": "trigger-out", "targetHandle": "if-in"},
+                    {"source": "if-1", "target": "action-lead", "sourceHandle": "if-true", "targetHandle": "action-lead-in"},
+                    {"source": "if-1", "target": "action-todo", "sourceHandle": "if-false", "targetHandle": "action-todo-in"},
+                ],
+            }),
+        })
+        auto.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        def _capture_enqueue(method, queue="short", **kwargs):
+            from automation_builder.dispatcher import execute_automation
+            execute_automation(**kwargs)
+
+        # --- Lead triggers -> IF __trigger_doctype__ = "Lead" -> TRUE -> action-lead ---
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+            lead = frappe.get_doc({"doctype": "Lead", "lead_name": "PseudoField Test Lead"})
+            lead.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        runs_lead = frappe.get_all(
+            "Automation Run",
+            filters={"automation": auto.name, "reference_doctype": "Lead"},
+            fields=["status", "log"],
+        )
+        self.assertEqual(len(runs_lead), 1, "Lead should produce exactly one run")
+        self.assertEqual(runs_lead[0].status, "Success")
+        log_lead = json.loads(runs_lead[0].log)
+        # Expect: branch entry (IF) + action entry (telegram)
+        statuses_lead = [e["status"] for e in log_lead]
+        self.assertTrue(all(s == "Success" for s in statuses_lead), f"All steps should succeed: {log_lead}")
+        # The IF branch should have been taken (branch entry present)
+        branch_entries = [e for e in log_lead if e.get("step_type") == "if"]
+        self.assertEqual(len(branch_entries), 1)
+        self.assertIn("TRUE", branch_entries[0].get("output", ""))
+
+        # --- ToDo triggers -> IF __trigger_doctype__ = "Lead" -> FALSE -> action-todo ---
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+            todo = frappe.get_doc({"doctype": "ToDo", "description": "PseudoField Test ToDo"})
+            todo.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        runs_todo = frappe.get_all(
+            "Automation Run",
+            filters={"automation": auto.name, "reference_doctype": "ToDo"},
+            fields=["status", "log"],
+        )
+        self.assertEqual(len(runs_todo), 1, "ToDo should produce exactly one run")
+        self.assertEqual(runs_todo[0].status, "Success")
+        log_todo = json.loads(runs_todo[0].log)
+        branch_entries_todo = [e for e in log_todo if e.get("step_type") == "if"]
+        self.assertEqual(len(branch_entries_todo), 1)
+        self.assertIn("FALSE", branch_entries_todo[0].get("output", ""))
+
+    def test_switch_trigger_doctype_branch(self):
+        """FULL REAL PATH: Switch node with __trigger_doctype__ branches per doctype.
+
+        Path: doc.insert() -> hooks -> on_doc_event -> enqueue -> execute_automation
+              -> _walk_graph -> switch_case.evaluate_branch -> checks __trigger_doctype__
+        """
+        from unittest.mock import patch
+
+        auto = frappe.get_doc({
+            "doctype": "Automation",
+            "automation_name": "TEST-PseudoField-Switch",
+            "status": "Published",
+            "enabled": 1,
+            "triggers": [
+                {"trigger_doctype": "Lead", "trigger_event": "After Insert"},
+                {"trigger_doctype": "ToDo", "trigger_event": "After Insert"},
+                {"trigger_doctype": "Note", "trigger_event": "After Insert"},
+            ],
+            "graph_definition": json.dumps({
+                "nodes": [
+                    {"id": "trigger", "type": "trigger", "position": {"x": 0, "y": 0}, "data": {}},
+                    {"id": "switch-1", "type": "switch", "position": {"x": 0, "y": 150},
+                     "data": {"field_to_check": "__trigger_doctype__", "cases": [
+                         {"case_value": "Lead"},
+                         {"case_value": "ToDo"},
+                     ]}},
+                    {"id": "action-lead", "type": "action", "position": {"x": -200, "y": 300},
+                     "data": {"action_type": "telegram", "chat_id": "TEST", "message": "LEAD CASE"}},
+                    {"id": "action-todo", "type": "action", "position": {"x": 0, "y": 300},
+                     "data": {"action_type": "telegram", "chat_id": "TEST", "message": "TODO CASE"}},
+                    {"id": "action-default", "type": "action", "position": {"x": 200, "y": 300},
+                     "data": {"action_type": "telegram", "chat_id": "TEST", "message": "DEFAULT CASE"}},
+                ],
+                "edges": [
+                    {"source": "trigger", "target": "switch-1", "sourceHandle": "trigger-out", "targetHandle": "switch-in"},
+                    {"source": "switch-1", "target": "action-lead", "sourceHandle": "case-0", "targetHandle": "action-lead-in"},
+                    {"source": "switch-1", "target": "action-todo", "sourceHandle": "case-1", "targetHandle": "action-todo-in"},
+                    {"source": "switch-1", "target": "action-default", "sourceHandle": "default", "targetHandle": "action-default-in"},
+                ],
+            }),
+        })
+        auto.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        def _capture_enqueue(method, queue="short", **kwargs):
+            from automation_builder.dispatcher import execute_automation
+            execute_automation(**kwargs)
+
+        # --- Lead triggers -> case-0 ("Lead") ---
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+            lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Switch PseudoField Lead"})
+            lead.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        runs_lead = frappe.get_all(
+            "Automation Run",
+            filters={"automation": auto.name, "reference_doctype": "Lead"},
+            fields=["status", "log"],
+        )
+        self.assertEqual(len(runs_lead), 1)
+        self.assertEqual(runs_lead[0].status, "Success")
+        log_lead = json.loads(runs_lead[0].log)
+        branch_entries = [e for e in log_lead if e.get("step_type") == "switch"]
+        self.assertEqual(len(branch_entries), 1)
+        self.assertIn("case-0", branch_entries[0].get("branch_taken", ""))
+
+        # --- ToDo triggers -> case-1 ("ToDo") ---
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+            todo = frappe.get_doc({"doctype": "ToDo", "description": "Switch PseudoField ToDo"})
+            todo.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        runs_todo = frappe.get_all(
+            "Automation Run",
+            filters={"automation": auto.name, "reference_doctype": "ToDo"},
+            fields=["status", "log"],
+        )
+        self.assertEqual(len(runs_todo), 1)
+        self.assertEqual(runs_todo[0].status, "Success")
+        log_todo = json.loads(runs_todo[0].log)
+        branch_entries_todo = [e for e in log_todo if e.get("step_type") == "switch"]
+        self.assertEqual(len(branch_entries_todo), 1)
+        self.assertIn("case-1", branch_entries_todo[0].get("branch_taken", ""))
+
+        # --- Note triggers -> default (no case matches "Note") ---
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+            note = frappe.get_doc({"doctype": "Note", "title": "Switch PseudoField Note", "content": "test"})
+            note.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        runs_note = frappe.get_all(
+            "Automation Run",
+            filters={"automation": auto.name, "reference_doctype": "Note"},
+            fields=["status", "log"],
+        )
+        self.assertEqual(len(runs_note), 1)
+        self.assertEqual(runs_note[0].status, "Success")
+        log_note = json.loads(runs_note[0].log)
+        branch_entries_note = [e for e in log_note if e.get("step_type") == "switch"]
+        self.assertEqual(len(branch_entries_note), 1)
+        self.assertIn("default", branch_entries_note[0].get("branch_taken", ""))

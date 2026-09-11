@@ -5,6 +5,7 @@ import re
 import frappe
 from frappe.utils import sanitize_html
 
+TRIGGER_DOCTYPE_FIELD = "__trigger_doctype__"
 _TRIGGER_TOKEN_RE = re.compile(r"\{\{trigger\.(\w+)\}\}")
 
 
@@ -13,6 +14,12 @@ def resolve_value(raw_value, context):
 
     Supported tokens:
         {{trigger.fieldname}}  ->  doc.get("fieldname") on the triggering document
+
+    When ``context["trigger_doctype_select"]`` is ``"any"``, the node operates
+    on whatever document actually triggered this run. Tokens referencing fields
+    that don't exist on that particular doctype resolve to an empty string
+    rather than raising an error. This supports shared downstream nodes that
+    receive documents from different trigger doctypes via converging branches.
 
     Static strings (no tokens) pass through unchanged.
     Non-string values are returned as-is.
@@ -29,7 +36,11 @@ def resolve_value(raw_value, context):
         field = match.group(1)
         if doc is None:
             return ""
-        val = doc.get(field)
+        try:
+            val = doc.get(field)
+        except (AttributeError, TypeError):
+            # Doc doesn't support .get() or field access — resolve to empty
+            return ""
         if val is None:
             return ""
         val_str = str(val)

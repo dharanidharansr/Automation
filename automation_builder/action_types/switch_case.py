@@ -9,7 +9,7 @@ fixed 'default' handle for no match.
 """
 
 from automation_builder.action_types import register_action_type
-from automation_builder.action_types._helpers import resolve_value
+from automation_builder.action_types._helpers import resolve_value, TRIGGER_DOCTYPE_FIELD
 
 CONFIG_SCHEMA = [
     {"name": "field_to_check", "type": "field_select", "label": "Field to Check"},
@@ -41,7 +41,10 @@ def evaluate_branch(config, context):
     """
     doc = context.get("doc")
     field = config.get("field_to_check", "")
-    actual = doc.get(field) if doc else None
+    if field == TRIGGER_DOCTYPE_FIELD:
+        actual = context.get("trigger_doctype", "")
+    else:
+        actual = doc.get(field) if doc else None
     field_value = str(actual) if actual is not None else ""
 
     cases = config.get("cases", [])

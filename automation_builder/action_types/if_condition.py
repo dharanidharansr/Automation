@@ -10,7 +10,7 @@ Two fixed output handles: 'if-true' and 'if-false'.
 import operator as op
 
 from automation_builder.action_types import register_action_type
-from automation_builder.action_types._helpers import resolve_value
+from automation_builder.action_types._helpers import resolve_value, TRIGGER_DOCTYPE_FIELD
 
 CONFIG_SCHEMA = [
     {"name": "field_to_check", "type": "field_select", "label": "Field to Check"},
@@ -55,7 +55,10 @@ def evaluate_branch(config, context):
     expected_raw = config.get("value", "")
     expected = resolve_value(expected_raw, context)
 
-    actual = doc.get(field) if doc else None
+    if field == TRIGGER_DOCTYPE_FIELD:
+        actual = context.get("trigger_doctype", "")
+    else:
+        actual = doc.get(field) if doc else None
     comparator = OPERATORS.get(operator_str)
 
     if comparator:

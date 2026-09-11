@@ -31,7 +31,12 @@
         <label>Field</label>
         <select v-model="local.condition_field">
           <option value="">Select Field</option>
-          <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          <optgroup label="Document Fields">
+            <option v-for="f in realFields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          </optgroup>
+          <optgroup v-if="hasTriggerDoctypePseudoField" label="Automation">
+            <option value="__trigger_doctype__">Triggering Doctype</option>
+          </optgroup>
         </select>
       </div>
       <div class="ab-config-group">
@@ -63,7 +68,12 @@
         <label>Field to Check</label>
         <select v-model="local.field_to_check">
           <option value="">Select Field</option>
-          <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          <optgroup label="Document Fields">
+            <option v-for="f in realFields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          </optgroup>
+          <optgroup v-if="hasTriggerDoctypePseudoField" label="Automation">
+            <option value="__trigger_doctype__">Triggering Doctype</option>
+          </optgroup>
         </select>
       </div>
       <div class="ab-config-group">
@@ -100,7 +110,12 @@
         <label>Field to Check</label>
         <select v-model="local.field_to_check">
           <option value="">Select Field</option>
-          <option v-for="f in fields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          <optgroup label="Document Fields">
+            <option v-for="f in realFields" :key="f.fieldname" :value="f.fieldname">{{ f.label }} ({{ f.fieldname }})</option>
+          </optgroup>
+          <optgroup v-if="hasTriggerDoctypePseudoField" label="Automation">
+            <option value="__trigger_doctype__">Triggering Doctype</option>
+          </optgroup>
         </select>
       </div>
       <div class="ab-config-group">
@@ -137,6 +152,7 @@
         :schema="currentSchema"
         :config="local"
         :trigger-doctype="triggerDoctype"
+        :trigger-doctypes="triggerDoctypes"
         @update:config="onConfigUpdate"
       />
     </template>
@@ -165,6 +181,7 @@ const props = defineProps({
   nodeData: Object,
   nodeId: String,
   triggerDoctype: String,
+  triggerDoctypes: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update', 'close', 'add-action', 'remove-action'])
@@ -184,6 +201,11 @@ const title = computed(() => {
   }
   return titles[props.nodeType] || 'Configure'
 })
+
+const realFields = computed(() => fields.value.filter(f => f.fieldname !== '__trigger_doctype__'))
+const hasTriggerDoctypePseudoField = computed(() =>
+  props.nodeType === 'if' || props.nodeType === 'switch' || props.nodeType === 'condition'
+)
 
 const currentSchema = computed(() => {
   if (!local.value.action_type) return []
@@ -265,9 +287,15 @@ async function loadFields() {
   const dt = props.triggerDoctype || local.value.trigger_doctype
   if (dt) {
     try {
-      fields.value = await getDoctypeFields(dt)
+      const loaded = await getDoctypeFields(dt)
+      fields.value = [
+        ...loaded,
+        { fieldname: '__trigger_doctype__', label: 'Triggering Doctype', fieldtype: 'Data' },
+      ]
     } catch (e) {
-      fields.value = []
+      fields.value = [
+        { fieldname: '__trigger_doctype__', label: 'Triggering Doctype', fieldtype: 'Data' },
+      ]
     }
   }
 }

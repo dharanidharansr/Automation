@@ -12,6 +12,7 @@ import operator as op
 import frappe
 
 from automation_builder.action_types import get_action_type
+from automation_builder.action_types._helpers import TRIGGER_DOCTYPE_FIELD
 
 # ---------------------------------------------------------------------------
 # Event mapping: Frappe hook method names → automation trigger_event strings
@@ -36,7 +37,7 @@ OPERATORS = {
 _SPECIAL_OPERATORS = {"like", "not like", "in", "not in", "is set", "is not set"}
 
 
-def _evaluate_single_condition(doc, cond):
+def _evaluate_single_condition(doc, cond, context=None):
     """Evaluate a single condition dict against a document.
 
     Works for both trigger-level conditions (from Automation Trigger Condition
@@ -46,6 +47,7 @@ def _evaluate_single_condition(doc, cond):
         doc: The trigger document (has .get() method)
         cond: dict with keys: condition_field, condition_operator, condition_value
               (or field_to_check/operator/value for graph-walk nodes)
+        context: optional execution context dict (needed for ``__trigger_doctype__``)
 
     Returns:
         bool: True if the condition matches.
@@ -57,7 +59,10 @@ def _evaluate_single_condition(doc, cond):
     if not field or not operator_str:
         return True
 
-    actual = doc.get(field) if doc else None
+    if field == TRIGGER_DOCTYPE_FIELD and context is not None:
+        actual = context.get("trigger_doctype", "")
+    else:
+        actual = doc.get(field) if doc else None
 
     # Handle special operators
     if operator_str in _SPECIAL_OPERATORS:
@@ -269,6 +274,10 @@ def execute_automation(automation_name, ref_doctype, ref_name):
 
         context = {"doc": doc, "ref_doctype": ref_doctype, "ref_name": ref_name}
 
+        # Also expose trigger_doctype in context for token resolution
+        # In cross-doctype automations, this tells actions which doctype triggered this run
+        context["trigger_doctype"] = ref_doctype
+
         # Find the first trigger node dynamically (supports multiple triggers)
         trigger_nodes = [n for n in graph.get("nodes", []) if n.get("type") == "trigger"]
         start_id = trigger_nodes[0]["id"] if trigger_nodes else "trigger"
@@ -304,7 +313,7 @@ def execute_automation(automation_name, ref_doctype, ref_name):
                 step_result = _execute_action(action_type, config, context)
                 step_results.append(step_result)
 
-                if step_result.get("status") != "Success":
+                if step_result.get("status") == "Failed":
                     any_failed = True
 
                 # Create Automation Run Step record
@@ -366,13 +375,33 @@ def _create_run_step(run, entry, node_map):
 
 
 def _execute_action(action_type, config, context):
-    """Look up *action_type* in the registry and call its execute()."""
+    """Look up *action_type* in the registry and call its execute().
+
+    Before executing, checks ``trigger_doctype_select`` in the action config.
+    If set to a specific doctype (not "any") and the current run's
+    ``ref_doctype`` doesn't match, the action is skipped with a clear message.
+    This prevents actions scoped to one trigger doctype from executing when
+    a different doctype triggered the automation.
+    """
     handler = get_action_type(action_type)
     if handler is None:
         return {
             "step_type": action_type,
             "status": "Failed",
             "error": f"Unknown action type: {action_type}",
+        }
+
+    # --- Doctype scoping check ---
+    scoped_doctype = config.get("trigger_doctype_select")
+    run_doctype = context.get("ref_doctype", "")
+    if scoped_doctype and scoped_doctype != "any" and scoped_doctype != run_doctype:
+        return {
+            "step_type": action_type,
+            "status": "Skipped",
+            "output": (
+                f"Action scoped to {scoped_doctype}, "
+                f"this run was triggered by {run_doctype}"
+            ),
         }
 
     try:
@@ -469,7 +498,7 @@ def _walk_graph(graph, start_id, context=None):
             # If the condition matches, execution continues downstream.
             # If it doesn't match, execution STOPS (downstream actions are skipped).
             node_data = node.get("data", {})
-            matched = _evaluate_single_condition(context.get("doc"), node_data)
+            matched = _evaluate_single_condition(context.get("doc"), node_data, context=context)
 
             trace.append({
                 "type": "branch",
