@@ -166,6 +166,10 @@ def save_automation(
         doc = frappe.get_doc("Automation", name)
         doc.automation_name = automation_name or doc.automation_name
 
+        # Parse triggers from JSON string if needed (frappe.call sends lists as strings)
+        if isinstance(triggers, str):
+            triggers = json.loads(triggers)
+
         # Handle status with permission check
         if status is not None:
             _enforce_publish_permission(status)
@@ -190,8 +194,6 @@ def save_automation(
         # Handle triggers table (new format)
         saved_conditions = []
         if triggers is not None:
-            if isinstance(triggers, str):
-                triggers = json.loads(triggers)
             # Delete existing grandchild conditions before replacing triggers
             old_trigger_names = [t.name for t in doc.triggers]
             if old_trigger_names:
@@ -225,6 +227,10 @@ def save_automation(
         if saved_conditions:
             _insert_grandchild_conditions(doc, saved_conditions)
     else:
+        # Parse triggers from JSON string if needed (frappe.call sends lists as strings)
+        if isinstance(triggers, str):
+            triggers = json.loads(triggers)
+
         doc = frappe.new_doc("Automation")
         doc.automation_name = automation_name
         # Enforce publish permission BEFORE setting status (create path)
@@ -242,8 +248,6 @@ def save_automation(
 
         # Handle triggers table (new format)
         if triggers is not None:
-            if isinstance(triggers, str):
-                triggers = json.loads(triggers)
             saved_conditions = []
             for trigger_data in triggers:
                 conditions = trigger_data.pop("conditions", [])
