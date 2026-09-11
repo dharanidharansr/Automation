@@ -2277,3 +2277,38 @@ Fixed: when two triggers exist (e.g. Lead + ToDo), the Condition/IF/Switch field
 Root cause: `triggerDoctype` in `AutomationBuilder.vue` was hard-coded to find node `id === 'trigger'` (the first trigger). Added `findUpstreamTriggerDoctype()` that walks edges backwards from the selected node to find its upstream trigger, and `selectedNodeTriggerDoctype` computed that uses it. The ConfigPanel prop now receives this per-node doctype instead of the global one.
 
 **Commit:** `a665d62`
+
+---
+
+## Stage 23.5 — `trigger_doctype_select` on all node types + scoping enforcement
+
+### Problem
+Multi-doctype automations (e.g. Lead + ToDo triggers) had several issues:
+1. Same-named fields (e.g. `status`) on different doctypes caused `_evaluate_trigger_conditions()` to match ALL trigger rows against ALL doctypes — a Lead trigger's `status=Open` condition would also match a ToDo document.
+2. Condition/IF/Switch nodes had no `trigger_doctype_select` field, so they couldn't be scoped to a specific doctype.
+3. No save-time validation prevented users from building multi-doctype automations with unscoped field-reading nodes.
+
+### Changes
+
+**Backend (`dispatcher.py`):**
+- `_evaluate_trigger_conditions()` now filters trigger rows by `doc.doctype` — only evaluates rows where `trigger_doctype` matches the document's doctype.
+- `_walk_graph()` now checks `trigger_doctype_select` on condition, IF, and Switch nodes — skips evaluation and follows first outgoing edge when scoped doctype doesn't match `context["ref_doctype"]`.
+
+**Backend (`api.py`):**
+- Added `_validate_scoping_for_multi_doctype()` — rejects save when a multi-doctype automation (2+ distinct trigger doctypes) contains field-reading nodes without `trigger_doctype_select`. Called from both create and update paths in `save_automation()`.
+
+**Action types:**
+- Added `trigger_doctype_select` CONFIG_SCHEMA entry to `send_email.py`, `http_request.py`, `telegram.py` (first entry, before other fields).
+
+**Frontend (`ConfigPanel.vue`):**
+- Added `trigger_doctype_select` dropdown to condition, IF, and Switch config sections (only shown when `triggerDoctypes.length > 1`).
+
+**Tests (8 new):**
+- `test_23_5_scoping.py`: Part A (same-field triggers evaluate independently), Part B (condition node scoped skips on wrong trigger), Part C (save-time validation rejects unscoped nodes).
+- `test_22_cross_doctype.py`: Cross-doctype end-to-end tests for skip, execute, any mode, and resolution.
+
+**Documentation:**
+- `TRIGGERS_AND_FLOW.md`: Updated testing coverage table, added Stage 23.5 coverage section.
+- `PROGRESS_REPORT.md`: This entry.
+
+**Status:** 119 tests total, 6 pre-existing Telegram failures (real bot token + invalid chat_id), 0 new failures.
