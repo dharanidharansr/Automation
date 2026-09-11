@@ -2183,3 +2183,61 @@ The fixes were verified via:
 4. Open an IF node → confirm config sidebar appears with field/operator/value fields
 5. Open a Switch node → confirm config sidebar appears with field/cases fields
 6. Save and reload → confirm all changes persist
+
+---
+
+## Stage 22 Follow-up — 2026-09-11
+
+### Item 1: Skip-detection regression check — FIXED
+
+**Finding:** The `trigger_doctype_select` field was stored in action configs but **never checked during execution**. There was no skip-detection logic in `_execute_action` — a node scoped to "Lead" would execute (with empty resolved fields) even when triggered by a ToDo, instead of showing "Skipped".
+
+**Root cause:** The skip-detection logic was never implemented in the main Stage 22 work. The `trigger_doctype_select` field was purely a frontend UX feature with no backend behavioral effect.
+
+**Fix applied:**
+1. Added doctype scoping check in `_execute_action()` (`dispatcher.py:372-394`): if `trigger_doctype_select` is set to a specific doctype (not "any") and doesn't match `context["ref_doctype"]`, returns `status="Skipped"` with message `"Action scoped to {doctype}, this run was triggered by {run_doctype}"`.
+2. Fixed `any_failed` logic in `execute_automation()` (`dispatcher.py:311`): changed from `status != "Success"` to `status == "Failed"` so that "Skipped" steps don't mark the overall run as Failed.
+3. The `try/except` in `resolve_value()` does NOT interfere — the skip check happens in `_execute_action` before `resolve_value` is ever called.
+
+**Regression test:** `test_specific_doctype_skips_on_wrong_trigger` — creates automation with Lead+ToDo triggers, action scoped to "Lead", triggers with ToDo → verifies run status="Success" (skip is not failure), log shows `status="Skipped"` with scoped message. Then triggers with Lead → verifies run executes normally with `status="Success"`.
+
+**Observed behavior after fix:**
+- ToDo trigger + action scoped to Lead → Run status: **Success**, Step status: **Skipped**, Output: "Action scoped to Lead, this run was triggered by ToDo"
+- Lead trigger + action scoped to Lead → Run status: **Success**, Step status: **Success**
+
+### Item 2: `{{trigger_<doctype>.fieldname}}` redundancy — REMOVED
+
+**Finding:** The `{{trigger_<doctype>.fieldname}}` token syntax (e.g., `{{trigger_lead.lead_name}}`) was redundant with the node-level `trigger_doctype_select` control. Both mechanisms attempt to resolve fields from a specific doctype, but:
+
+- The execution context always has ONE doc (`context["doc"]` = the triggering document)
+- The doctype hint in `{{trigger_<doctype>.fieldname}}` is silently ignored — it resolves from the same doc as `{{trigger.fieldname}}`
+- The node-level `trigger_doctype_select` already controls which doctype's fields are available and whether the action executes
+
+**Decision:** Removed `{{trigger_<doctype>.fieldname}}` syntax. One mechanism (`trigger_doctype_select`) controlling this is cleaner than two overlapping mechanisms that create confusion.
+
+**Changes:**
+- `_helpers.py`: Simplified regex from `r"\{\{trigger(?:_(\w+))?\.(\w+)\}\}"` back to `r"\{\{trigger\.(\w+)\}\}"`
+- Removed the `doctype_hint` variable and related docstring references
+- Updated test `test_trigger_doctype_token_resolves` to use `{{trigger.lead_name}}` instead of `{{trigger_lead.lead_name}}`
+
+### Item 3: Browser click-through — NOT POSSIBLE
+
+**No display server available** in this environment (`DISPLAY` is not set). Cannot perform real browser verification. Per the standing instruction, this is stated explicitly rather than omitted.
+
+**Required manual verification when browser is available:**
+1. Open automation with two trigger doctypes (Lead + ToDo)
+2. Add Update Field action → confirm `trigger_doctype_select` dropdown shows: "Select trigger DocType...", "Any (whichever triggered)", "Lead", "ToDo"
+3. Select "Any" → confirm hint text: "Resolves against whichever document triggered this run. Tokens for fields not on that doctype resolve to empty string..."
+4. Select "Lead" → confirm field picker shows Lead fields
+5. Select "ToDo" → confirm field picker switches to ToDo fields
+6. Save and reload → confirm selected mode persists
+
+### Test suite status
+- **108 tests pass, 0 failures** (3 new tests added in this follow-up)
+- Frontend builds clean
+
+---
+
+## TRIGGERS_AND_FLOW.md — Documentation-only stage
+
+Created `TRIGGERS_AND_FLOW.md` at repo root: a focused deep-dive on the trigger/multi-trigger/cross-doctype model (separate from ARCHITECTURE.md's broader system overview). Covers: trigger rows with OR semantics, condition_logic (All/Any), all 12 operators, cross-doctype field-reference problem, `trigger_doctype_select` three modes (specific/any/unset), shared vs per-doctype patterns with Mermaid diagram, IF doctype branching (no pseudo-field exists — workaround documented), full worked example, and testing coverage notes including the full-path vs direct-call distinction. Every claim verified against actual source code.
