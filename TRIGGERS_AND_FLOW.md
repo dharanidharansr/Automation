@@ -114,6 +114,14 @@ This is what `trigger_doctype_select` solves.
 
 ## 4. `trigger_doctype_select` — The Three Modes
 
+Every graph node type (Condition, IF, Switch, Action) carries a `trigger_doctype_select` field with three possible values:
+
+| Value | Behavior |
+|---|---|
+| **Specific doctype** (e.g. `"Lead"`) | The node operates on the Lead trigger's document. Skips if the run was triggered by a different doctype. |
+| **`"any"`** | The node operates on whichever trigger fired. No skip — always executes. |
+| **Empty / absent** | The node uses the default behavior (matches the run's trigger doctype). |
+
 This config field appears on **Update Field** and **Create Document** action types only
 (confirmed in `update_field.py:11-15`, `create_document.py:11-15`). It is **not** present on
 Send Email, Telegram, HTTP Request, IF, Switch, or Condition nodes.
@@ -405,16 +413,21 @@ regression in the dispatch path would have gone undetected.
 
 - **Dispatch path for "Any" mode**: no full-path test inserts a document and verifies the
   "Any"-mode action executes via `on_doc_event()`.
-- **Condition evaluation in cross-doctype triggers**: `test_dispatch_lead_insert_matches_lead_trigger`
-  tests `_evaluate_trigger_conditions` directly but does not exercise the full path.
-- **Multiple trigger rows with conditions**: no test creates an automation with two trigger
-  rows (different doctypes, each with conditions) and fires both paths end-to-end.
-- **Condition graph node with `__trigger_doctype__`**: the pseudo-field works for IF and
-  Switch (full-path tested) and the backend supports it for Condition nodes, but no
-  full-path test exercises the Condition node variant.
 - **Frontend rendering**: no automated test verifies the `trigger_doctype_select` dropdown
   renders, the "Any" hint text appears, or the field picker updates when the selection
   changes. (No display server available for browser testing.)
+
+### What was covered in Stage 23.5
+
+- **Multiple trigger rows with conditions**: `test_trigger_conditions_evaluate_independently`
+  creates Lead + ToDo triggers with different conditions and verifies each evaluates
+  independently (Lead trigger checks status=Open, ToDo trigger checks status=Closed).
+- **Condition node with `trigger_doctype_select`**: `test_condition_node_scoped_skips_on_wrong_trigger`
+  full-path test exercises the Condition node skip branch.
+- **Save-time validation**: `TestMultiDoctypeSaveValidation` tests reject unscoped actions,
+  unscoped conditions, and allow scoped nodes with "any" mode.
+- **`_evaluate_trigger_conditions` doctype filter**: fixed to only evaluate trigger rows
+  matching the document's doctype, preventing false matches across doctypes.
 
 ### Where to be skeptical
 
