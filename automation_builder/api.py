@@ -1,5 +1,7 @@
 """Whitelisted API endpoints for the Automation Builder frontend."""
 
+import json
+
 import frappe
 from frappe import _
 
@@ -186,7 +188,10 @@ def save_automation(
             doc.graph_definition = graph_definition
 
         # Handle triggers table (new format)
+        saved_conditions = []
         if triggers is not None:
+            if isinstance(triggers, str):
+                triggers = json.loads(triggers)
             # Delete existing grandchild conditions before replacing triggers
             old_trigger_names = [t.name for t in doc.triggers]
             if old_trigger_names:
@@ -195,7 +200,6 @@ def save_automation(
                     (old_trigger_names,),
                 )
             doc.triggers = []
-            saved_conditions = []
             for trigger_data in triggers:
                 conditions = trigger_data.pop("conditions", [])
                 saved_conditions.append(conditions)
@@ -218,7 +222,8 @@ def save_automation(
             doc.condition_value = condition_value
 
         doc.save(ignore_permissions=True)
-        _insert_grandchild_conditions(doc, saved_conditions)
+        if saved_conditions:
+            _insert_grandchild_conditions(doc, saved_conditions)
     else:
         doc = frappe.new_doc("Automation")
         doc.automation_name = automation_name
@@ -237,6 +242,8 @@ def save_automation(
 
         # Handle triggers table (new format)
         if triggers is not None:
+            if isinstance(triggers, str):
+                triggers = json.loads(triggers)
             saved_conditions = []
             for trigger_data in triggers:
                 conditions = trigger_data.pop("conditions", [])
