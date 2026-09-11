@@ -8,6 +8,12 @@ from automation_builder.action_types._helpers import resolve_value
 
 CONFIG_SCHEMA = [
     {
+        "name": "trigger_doctype_select",
+        "type": "trigger_doctype_select",
+        "label": "Trigger DocType",
+        "description": "Which trigger's document to use for field tokens. Only shown when automation has multiple triggers.",
+    },
+    {
         "name": "target_doctype",
         "type": "doctype_link",
         "label": "Target DocType",

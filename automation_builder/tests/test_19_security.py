@@ -467,7 +467,9 @@ class TestAudit21_PythonVersion(IntegrationTestCase):
     def test_python_version_not_too_restrictive(self):
         """pyproject.toml requires-python should be >=3.11, not >=3.14."""
         import re
-        with open("/home/sr/frappe-bench-v16/apps/automation_builder/pyproject.toml") as f:
+        import os
+        pyproject_path = os.path.join(os.path.dirname(__file__), "..", "..", "pyproject.toml")
+        with open(pyproject_path) as f:
             content = f.read()
         match = re.search(r'requires-python\s*=\s*"([^"]+)"', content)
         self.assertIsNotNone(match, "requires-python should be set in pyproject.toml")
