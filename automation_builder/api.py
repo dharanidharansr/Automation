@@ -40,8 +40,12 @@ def _validate_triggers_for_publish(triggers):
 @frappe.whitelist()
 def get_doctype_fields(doctype):
     """Return field list for a given DocType."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
     if not frappe.db.exists("DocType", doctype):
         frappe.throw(_("DocType {0} does not exist").format(doctype))
+    if not frappe.has_permission(doctype, "read"):
+        frappe.throw(_("Insufficient permissions to read {0} fields").format(doctype))
 
     meta = frappe.get_meta(doctype)
     fields = []
@@ -62,6 +66,10 @@ def get_doctype_fields(doctype):
 @frappe.whitelist()
 def get_automation(name):
     """Return full Automation doc including graph_definition and triggers."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
+    if not frappe.has_permission("Automation", "read"):
+        frappe.throw(_("Insufficient permissions"))
     doc = frappe.get_doc("Automation", name)
 
     # Get triggers from child table
@@ -247,8 +255,8 @@ def save_automation(
             doc.graph_definition = graph_definition
 
         # Handle triggers table (new format)
+        saved_conditions = []
         if triggers is not None:
-            saved_conditions = []
             for trigger_data in triggers:
                 conditions = trigger_data.pop("conditions", [])
                 saved_conditions.append(conditions)
@@ -279,6 +287,10 @@ def save_automation(
 @frappe.whitelist()
 def list_automations():
     """Return list of automations for the list view."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
+    if not frappe.has_permission("Automation", "read"):
+        frappe.throw(_("Insufficient permissions"))
     return frappe.get_all(
         "Automation",
         fields=[
@@ -295,6 +307,10 @@ def list_automations():
 @frappe.whitelist()
 def list_runs(automation=None, limit_page_length=50):
     """Return Automation Run records, optionally filtered by automation."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
+    if not frappe.has_permission("Automation Run", "read"):
+        frappe.throw(_("Insufficient permissions"))
     filters = {}
     if automation:
         filters["automation"] = automation
@@ -321,6 +337,8 @@ def list_runs(automation=None, limit_page_length=50):
 @frappe.whitelist()
 def get_doctype_list():
     """Return list of DocTypes for the trigger picker."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
     return frappe.get_all(
         "DocType",
         fields=["name"],
@@ -336,6 +354,8 @@ def get_action_types():
     Returns label + config_schema for each type (not the execute functions).
     The frontend will use this to render config panels generically.
     """
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
     from automation_builder.action_types import get_all_action_types
 
     return get_all_action_types()
@@ -355,6 +375,10 @@ def can_publish():
 @frappe.whitelist()
 def list_email_templates():
     """Return list of Automation Email Templates."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
+    if not frappe.has_permission("Automation Email Template", "read"):
+        frappe.throw(_("Insufficient permissions"))
     return frappe.get_all(
         "Automation Email Template",
         fields=["name", "template_name", "subject", "modified"],
@@ -365,6 +389,10 @@ def list_email_templates():
 @frappe.whitelist()
 def get_email_template(name):
     """Return full Email Template doc."""
+    if not frappe.session.user or frappe.session.user == "Guest":
+        frappe.throw(_("Login required"), frappe.DoesNotExistError)
+    if not frappe.has_permission("Automation Email Template", "read"):
+        frappe.throw(_("Insufficient permissions"))
     doc = frappe.get_doc("Automation Email Template", name)
     return {
         "name": doc.name,
