@@ -855,8 +855,9 @@
   font-weight: var(--weight-regular);
   background: var(--control-bg);
   color: var(--text-color);
-  height: var(--input-height);
+  min-height: var(--input-height);
   outline: none;
+  box-sizing: border-box;
 }
 
 .ab-config-group select:focus,
