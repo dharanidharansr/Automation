@@ -2267,3 +2267,13 @@ Built the `__trigger_doctype__` pseudo-field for IF/Switch/Condition nodes, enab
 - Section 8 testing notes updated with new full-path tests
 
 **Status:** 111 tests pass, frontend builds clean.
+
+---
+
+## Stage 23 follow-up — Field picker per-trigger fix
+
+Fixed: when two triggers exist (e.g. Lead + ToDo), the Condition/IF/Switch field picker now shows fields from the **upstream trigger the node is connected to**, not always the first trigger's fields.
+
+Root cause: `triggerDoctype` in `AutomationBuilder.vue` was hard-coded to find node `id === 'trigger'` (the first trigger). Added `findUpstreamTriggerDoctype()` that walks edges backwards from the selected node to find its upstream trigger, and `selectedNodeTriggerDoctype` computed that uses it. The ConfigPanel prop now receives this per-node doctype instead of the global one.
+
+**Commit:** `a665d62`

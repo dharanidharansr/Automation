@@ -37,6 +37,88 @@ def _validate_triggers_for_publish(triggers):
             )
 
 
+# Nodes whose config schema contains trigger_doctype_select.
+# These are the node types that read trigger-document fields.
+_SCOPABLE_NODE_TYPES = {"send_email", "create_document", "update_field", "http_request", "telegram"}
+
+# Pseudo-field that resolves from context, not the document — never needs scoping.
+_PSEUDO_FIELD = "__trigger_doctype__"
+
+
+def _validate_scoping_for_multi_doctype(graph_json, triggers):
+    """Reject automations where field-reading nodes lack explicit scoping.
+
+    When an automation has 2+ distinct trigger doctypes, every node that
+    reads trigger-document fields (actions with trigger_doctype_select in
+    their config, condition/IF/Switch nodes checking a real field) MUST
+    have explicit scoping set. Otherwise the node silently evaluates
+    against the wrong document at runtime.
+
+    Called from save_automation BEFORE persisting. Raises frappe.ValidationError
+    if any node is unscoped in a multi-doctype context.
+    """
+    if not graph_json or not triggers:
+        return
+
+    # Determine distinct trigger doctypes
+    doctypes = set()
+    for t in triggers:
+        dt = t.get("trigger_doctype") if isinstance(t, dict) else getattr(t, "trigger_doctype", None)
+        if dt:
+            doctypes.add(dt)
+
+    if len(doctypes) <= 1:
+        return  # No ambiguity — scoping is optional
+
+    try:
+        graph = json.loads(graph_json) if isinstance(graph_json, str) else graph_json
+    except (json.JSONDecodeError, TypeError):
+        return  # Can't parse — skip validation (will fail at execution)
+
+    nodes = graph.get("nodes", [])
+
+    unscoped = []
+    for node in nodes:
+        node_type = node.get("type")
+        node_data = node.get("data", {})
+        node_id = node.get("id", "unknown")
+
+        if node_type == "action":
+            action_type = node_data.get("action_type", "")
+            if action_type not in _SCOPABLE_NODE_TYPES:
+                continue
+            scoped = node_data.get("trigger_doctype_select", "")
+            if not scoped:
+                unscoped.append(f"Action node '{action_type}' ({node_id})")
+
+        elif node_type == "condition":
+            field = node_data.get("condition_field", "")
+            if field and field != _PSEUDO_FIELD:
+                scoped = node_data.get("trigger_doctype_select", "")
+                if not scoped:
+                    unscoped.append(f"Condition node ({node_id}) checking '{field}'")
+
+        elif node_type in ("if", "switch"):
+            field = node_data.get("field_to_check", "")
+            if field and field != _PSEUDO_FIELD:
+                # IF/Switch reference a real field — needs scoping
+                # (the __trigger_doctype__ pseudo-field is always safe)
+                scoped = node_data.get("trigger_doctype_select", "")
+                if not scoped:
+                    label = "IF" if node_type == "if" else "Switch"
+                    unscoped.append(f"{label} node ({node_id}) checking '{field}'")
+
+    if unscoped:
+        names = "; ".join(unscoped)
+        frappe.throw(
+            _("This automation has multiple trigger DocTypes ({0}). "
+              "The following nodes read trigger fields but have no explicit "
+              "DocType scope: {1}. Please set 'Trigger DocType' on each "
+              "node to a specific DocType, or select 'Any'.")
+            .format(", ".join(sorted(doctypes)), names)
+        )
+
+
 @frappe.whitelist()
 def get_doctype_fields(doctype):
     """Return field list for a given DocType."""
@@ -231,6 +313,14 @@ def save_automation(
         if condition_value is not None:
             doc.condition_value = condition_value
 
+        # Validate scoping in multi-doctype automations (before save)
+        effective_graph = graph_definition if graph_definition is not None else doc.graph_definition
+        effective_triggers_for_validation = triggers if triggers is not None else [
+            {"trigger_doctype": t.trigger_doctype, "trigger_event": t.trigger_event}
+            for t in doc.triggers
+        ]
+        _validate_scoping_for_multi_doctype(effective_graph, effective_triggers_for_validation)
+
         doc.save(ignore_permissions=True)
         if saved_conditions:
             _insert_grandchild_conditions(doc, saved_conditions)
@@ -277,6 +367,9 @@ def save_automation(
             doc.condition_operator = condition_operator
         if condition_value is not None:
             doc.condition_value = condition_value
+
+        # Validate scoping in multi-doctype automations (before insert)
+        _validate_scoping_for_multi_doctype(graph_definition, triggers or [])
 
         doc.insert(ignore_permissions=True)
         _insert_grandchild_conditions(doc, saved_conditions)

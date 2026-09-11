@@ -14,6 +14,12 @@ from automation_builder.action_types.http_request import make_http_request
 
 CONFIG_SCHEMA = [
     {
+        "name": "trigger_doctype_select",
+        "type": "trigger_doctype_select",
+        "label": "Trigger DocType",
+        "description": "Which trigger's document to use for field tokens. Only shown when automation has multiple triggers.",
+    },
+    {
         "name": "chat_id",
         "type": "data",
         "label": "Chat ID",

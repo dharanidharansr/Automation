@@ -52,6 +52,22 @@
         </option>
       </select>
 
+      <!-- trigger_doctype_select: dropdown of trigger doctypes from the automation -->
+      <select
+        v-else-if="field.type === 'trigger_doctype_select'"
+        :value="config[field.name]"
+        @change="onTriggerDoctypeSelectChange(field.name, $event.target.value)"
+      >
+        <option value="">Select trigger DocType...</option>
+        <option value="any">Any (whichever triggered)</option>
+        <option v-for="dt in triggerDoctypes" :key="dt" :value="dt">{{ dt }}</option>
+      </select>
+      <p v-if="field.type === 'trigger_doctype_select' && config[field.name] === 'any'" class="ab-config-hint">
+        Resolves against whichever document triggered this run. Tokens for fields not on that
+        doctype resolve to empty string. Use common fields only, or duplicate this node per branch
+        when per-doctype logic differs.
+      </p>
+
       <!-- field_mapping_table: repeatable target_field / source_value rows -->
       <template v-else-if="field.type === 'field_mapping_table'">
         <div v-if="config[field.name] && config[field.name].length" class="ab-mapping-rows">
@@ -110,6 +126,7 @@ const props = defineProps({
   schema: { type: Array, required: true },
   config: { type: Object, required: true },
   triggerDoctype: { type: String, default: '' },
+  triggerDoctypes: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['update:config'])
@@ -138,6 +155,10 @@ function isFieldVisible(field) {
   if (field.depends_on_value !== undefined) {
     return depValue === field.depends_on_value
   }
+  // trigger_doctype_select is only visible when there are multiple triggers
+  if (field.type === 'trigger_doctype_select') {
+    return props.triggerDoctypes.length > 1
+  }
   return !!depValue
 }
 
@@ -163,6 +184,12 @@ function onDoctypeChange(fieldName, value) {
     newConfig.field_mapping = [{ target_field: '', source_value: '' }]
   }
   emit('update:config', newConfig)
+}
+
+function onTriggerDoctypeSelectChange(fieldName, value) {
+  const newConfig = { ...props.config, [fieldName]: value }
+  emit('update:config', newConfig)
+  setTimeout(() => loadFields(), 100)
 }
 
 function onLinkFieldnameChange(value) {
@@ -191,7 +218,12 @@ function updateMapping(fieldName, idx, key, value) {
 
 // Core field loading function — called explicitly, not via watchEffect
 async function loadFields() {
-  const triggerDt = props.triggerDoctype
+  const triggerDoctypeSelect = props.config.trigger_doctype_select
+  // For "any" mode, use the first trigger doctype as the field reference
+  // (fields are a best-effort guide; tokens resolve against whatever doc actually fires)
+  const triggerDt = triggerDoctypeSelect === 'any'
+    ? (props.triggerDoctypes[0] || props.triggerDoctype)
+    : (triggerDoctypeSelect || props.triggerDoctype)
   const actionType = props.config.action_type
   const target = props.config.target
   const linkFieldname = props.config.link_fieldname

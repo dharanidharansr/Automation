@@ -78,9 +78,39 @@ Permissions: System Manager (full CRUD), Automation User (read/write/create, no 
 |-------|------|---------|
 | `trigger_doctype` | Link → DocType | Which DocType to listen to |
 | `trigger_event` | Select: After Insert/On Update/On Submit/On Cancel | Which document event |
-| `condition_field` | Data | Field name on the trigger doc to evaluate |
-| `condition_operator` | Select: =/!=/>/</>=/<= | Comparison operator |
-| `condition_value` | Data | Expected value (static string) |
+| `condition_logic` | Select: All must match/Any must match | How conditions within this trigger row are combined |
+| `conditions` | Table → Automation Trigger Condition | Nested conditions (AND/OR groups) |
+| `condition_field` | Data (hidden) | Legacy field, migrated to conditions table |
+| `condition_operator` | Select (hidden) | Legacy field, migrated to conditions table |
+| `condition_value` | Data (hidden) | Legacy field, migrated to conditions table |
+
+**Cross-doctype triggers:** An Automation can have multiple trigger rows targeting different DocTypes (e.g., Lead + ToDo). Trigger rows use OR semantics — ANY matching row fires the automation. When a Lead is inserted, only the Lead trigger row's conditions are evaluated against the Lead document. The ToDo trigger row's conditions are also evaluated but would typically fail (the Lead doesn't have ToDo fields). This design means:
+
+- **Dispatch**: `on_doc_event` queries automations where `trigger_doctype` matches the event's doctype. Only automations with a matching trigger row are considered.
+- **Condition evaluation**: All trigger rows are evaluated against the same document (the one that triggered the event). Conditions that reference fields from a different doctype will evaluate to False.
+- **Actions**: Actions operate on `context["doc"]` — the document that triggered the event. Cross-doctype operations (e.g., updating a Lead when a ToDo triggers) use "Linked Document" in the Update Field action.
+- **Token resolution**: `{{trigger.fieldname}}` resolves against the triggering document. `{{trigger_<doctype>.fieldname}}` is also supported for explicit doctype targeting (resolves against the same document for now).Future enhancement: `context["trigger_docs"]` could hold documents from all matching triggers for true cross-doctype token resolution.
+
+**`trigger_doctype_select` config field on actions:** When an automation has multiple triggers, the Update Field and Create Document actions include a `trigger_doctype_select` dropdown with three modes:
+
+1. **Specific doctype** (e.g., "Lead"): The action operates on that doctype's fields. Field mapping shows that doctype's fields.
+2. **"Any (whichever triggered)"**: The action operates on whatever document actually fired this run. Tokens resolve against that document. Fields that don't exist on the triggering doctype resolve to empty string (no error). Use this when two branches from different trigger doctypes converge into a single shared downstream node that only uses common fields.
+3. **Empty (default)**: Falls back to the first trigger doctype.
+
+**"Any" mode vs. "duplicate the node per branch":** When should you use "Any" mode versus duplicating the action node for each trigger doctype?
+
+- **Use "Any" mode** when the shared node uses only fields that exist on ALL trigger doctypes (common fields). Example: a notification node that sends `{{trigger.name}}` — the `name` field exists on every Frappe document. Missing fields gracefully resolve to empty string.
+- **Duplicate the node per branch** when each doctype needs different field references or different logic. Example: Lead-specific actions reference `lead_name`, `company`, `email_id`; ToDo-specific actions reference `description`, `assigned_to`. These fields don't overlap, so duplicating the node with doctype-specific config is clearer and avoids empty-token confusion.
+
+```mermaid
+flowchart TD
+    T1[Lead Trigger] --> Shared1{{"Shared node<br/>(Any mode)"}}
+    T2[ToDo Trigger] --> Shared1
+    Shared1 --> Action1[Send common notification]
+
+    T3[Lead Trigger] --> LeadAction["Lead-specific action<br/>(references lead_name)"]
+    T4[ToDo Trigger] --> ToDoAction["ToDo-specific action<br/>(references description)"]
+```
 
 **Automation Run** (read-only, autonamed by hash)
 
@@ -539,6 +569,7 @@ The config panel (`ConfigPanel.vue`) renders configuration forms generically fro
 - `field_mapping_table` → repeatable target_field/source_value rows
 - `template_picker` → dropdown of Automation Email Templates
 - `case_list` → dynamic list of case values (for Switch nodes)
+- `trigger_doctype_select` → dropdown of trigger doctypes from the automation (for multi-trigger cross-doctype actions)
 
 When a user selects a new action type, `onActionTypeChange()` initializes the config from the schema's defaults. The `ActionConfigForm.vue` component handles rendering each field type and emitting config updates.
 
@@ -581,12 +612,14 @@ All tests use `frappe.tests.IntegrationTestCase` and run against a real MariaDB 
 
 ## 9. Current Scope vs. Full Roadmap
 
-### What Is Built (as of Stage 18)
+### What Is Built (as of Stage 22)
 
 | Feature | Status |
 |---------|--------|
 | Automation DocType with Draft/Published governance | ✅ |
 | Automation Trigger child table (multi-trigger support) | ✅ |
+| Cross-doctype triggers (Lead + ToDo + Note, OR across rows) | ✅ |
+| AND/OR condition groups per trigger row | ✅ |
 | Visual graph canvas (Vue 3 + Vue Flow) | ✅ |
 | 5 action types: Create Document, Send Email, HTTP Request, Telegram, Update Field | ✅ |
 | 2 logic types: IF (2 branches), Switch (N branches + default) | ✅ |
@@ -599,7 +632,8 @@ All tests use `frappe.tests.IntegrationTestCase` and run against a real MariaDB 
 | Sidebar node palette with drag-and-drop | ✅* |
 | Drag-to-add picker (from handle to empty canvas) | ✅* |
 | Node type picker (drag-to-empty-canvas) | ✅* |
-| 49 automated tests (0 fail) | ✅ |
+| Security hardening (denylist, SSRF protection, XSS sanitization) | ✅ |
+| 105 automated tests (0 fail) | ✅ |
 
 \* Backend logic verified by automated test (graph roundtrip, reconnection after removal); live browser interaction not independently confirmed by a human. See Section 8 for full gaps list.
 

@@ -27,6 +27,20 @@
 
     <!-- Condition Config (graph node) -->
     <template v-if="nodeType === 'condition'">
+      <div v-if="triggerDoctypes.length > 1" class="ab-config-group">
+        <label>Trigger DocType</label>
+        <select v-model="local.trigger_doctype_select">
+          <option value="">Select trigger DocType...</option>
+          <option value="any">Any (whichever triggered)</option>
+          <option v-for="dt in triggerDoctypes" :key="dt" :value="dt">{{ dt }}</option>
+        </select>
+        <p v-if="local.trigger_doctype_select === 'any'" class="ab-config-hint">
+          Evaluates against whichever document triggered this run.
+        </p>
+        <p v-else-if="!local.trigger_doctype_select" class="ab-config-hint ab-config-hint-warn">
+          In multi-trigger automations, set this to avoid evaluating against the wrong document.
+        </p>
+      </div>
       <div class="ab-config-group">
         <label>Field</label>
         <select v-model="local.condition_field">
@@ -64,6 +78,14 @@
 
     <!-- IF Config -->
     <template v-if="nodeType === 'if'">
+      <div v-if="triggerDoctypes.length > 1" class="ab-config-group">
+        <label>Trigger DocType</label>
+        <select v-model="local.trigger_doctype_select">
+          <option value="">Select trigger DocType...</option>
+          <option value="any">Any (whichever triggered)</option>
+          <option v-for="dt in triggerDoctypes" :key="dt" :value="dt">{{ dt }}</option>
+        </select>
+      </div>
       <div class="ab-config-group">
         <label>Field to Check</label>
         <select v-model="local.field_to_check">
@@ -106,6 +128,14 @@
 
     <!-- Switch Config -->
     <template v-if="nodeType === 'switch'">
+      <div v-if="triggerDoctypes.length > 1" class="ab-config-group">
+        <label>Trigger DocType</label>
+        <select v-model="local.trigger_doctype_select">
+          <option value="">Select trigger DocType...</option>
+          <option value="any">Any (whichever triggered)</option>
+          <option v-for="dt in triggerDoctypes" :key="dt" :value="dt">{{ dt }}</option>
+        </select>
+      </div>
       <div class="ab-config-group">
         <label>Field to Check</label>
         <select v-model="local.field_to_check">

@@ -178,14 +178,17 @@ def _evaluate_trigger_conditions(automation_name, doc):
     triggers = frappe.get_all(
         "Automation Trigger",
         filters={"parent": automation_name},
-        fields=["name", "condition_field", "condition_operator", "condition_value",
-                "condition_logic"],
+        fields=["name", "trigger_doctype", "condition_field", "condition_operator",
+                "condition_value", "condition_logic"],
     )
 
     if not triggers:
         return True
 
     for trigger in triggers:
+        # Only evaluate trigger rows that match the document's doctype
+        if trigger.trigger_doctype != doc.doctype:
+            continue
         # Check if this trigger row has conditions in the new child table
         conditions = frappe.get_all(
             "Automation Trigger Condition",
@@ -474,6 +477,23 @@ def _walk_graph(graph, start_id, context=None):
             break
 
         if context and node_type in ("if", "switch"):
+            # Doctype scoping: if the branching node is scoped to a specific
+            # doctype and this run was triggered by a different doctype,
+            # skip the evaluation and follow the first outgoing edge.
+            node_data_for_scope = node.get("data", {})
+            scoped_dt = node_data_for_scope.get("trigger_doctype_select")
+            run_dt = context.get("ref_doctype", "")
+            if scoped_dt and scoped_dt != "any" and scoped_dt != run_dt:
+                trace.append({
+                    "type": "branch",
+                    "node_id": current_id,
+                    "node_type": node_type,
+                    "branch_taken": "skipped",
+                    "output": f"{node_type.upper()} scoped to {scoped_dt}, this run was triggered by {run_dt} (skipped)",
+                })
+                current_id = outgoing[0][1] if outgoing else None
+                continue
+
             # Evaluate branching node
             source_handle, log_msg = _evaluate_branching_node(node, context)
             trace.append({
@@ -498,6 +518,24 @@ def _walk_graph(graph, start_id, context=None):
             # If the condition matches, execution continues downstream.
             # If it doesn't match, execution STOPS (downstream actions are skipped).
             node_data = node.get("data", {})
+
+            # Doctype scoping: if condition is scoped to a specific doctype
+            # and this run was triggered by a different doctype, skip the
+            # condition (treat as "not applicable") and continue downstream.
+            scoped_dt = node_data.get("trigger_doctype_select")
+            run_dt = context.get("ref_doctype", "")
+            if scoped_dt and scoped_dt != "any" and scoped_dt != run_dt:
+                trace.append({
+                    "type": "branch",
+                    "node_id": current_id,
+                    "node_type": "condition",
+                    "branch_taken": "skipped",
+                    "output": f"Condition scoped to {scoped_dt}, this run was triggered by {run_dt} (skipped)",
+                })
+                # Follow the single outgoing edge — condition is not applicable
+                current_id = outgoing[0][1] if outgoing else None
+                continue
+
             matched = _evaluate_single_condition(context.get("doc"), node_data, context=context)
 
             trace.append({
