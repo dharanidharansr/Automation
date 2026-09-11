@@ -478,10 +478,9 @@ function selectNode(type, data, id) {
 
 function updateNodeData(newData) {
   const nodeId = selectedNodeId.value
-  const node = nodes.value.find(n => n.id === nodeId || n.id === selectedNodeType.value)
-  if (node) {
-    node.data = { ...node.data, ...newData }
-  }
+  nodes.value = nodes.value.map(n =>
+    n.id === nodeId ? { ...n, data: { ...n.data, ...newData } } : n
+  )
   selectedNode.value = null
 }
 
@@ -497,7 +496,9 @@ function isValidConnection(params) {
   if (params.id) return true
   const { source, sourceHandle, target, targetHandle } = params
   if (source === target) return false
-  if (target === 'trigger') return false
+  // Block connections to any trigger node (initial or dynamically created)
+  const targetNode = nodes.value.find(n => n.id === target)
+  if (targetNode && targetNode.type === 'trigger') return false
   if (source === 'add-trigger') return false
 
   // Linear-only: reject if source handle already has an outgoing edge
@@ -601,6 +602,8 @@ function createNodeAndConnect(nodeType, actionType, sourceNodeId, sourceHandleId
   if (nodeType === 'action') {
     const addTriggerNode = nodes.value.find(n => n.id === 'add-trigger')
     if (addTriggerNode) {
+      // Remove any existing edge to add-trigger to avoid duplicates
+      edges.value = edges.value.filter(e => e.target !== 'add-trigger')
       edges.value.push({
         id: `e-${newNodeId}-add-trigger`,
         source: newNodeId,
@@ -787,45 +790,12 @@ async function save() {
     const triggerNodes = nodes.value.filter(n => n.type === 'trigger')
     for (const trigger of triggerNodes) {
       if (!trigger.data?.trigger_doctype) continue
-      const conditions = []
-      // Support multi-trigger format (trigger_rows array in config panel)
-      if (trigger.data.trigger_rows && trigger.data.trigger_rows.length) {
-        for (const triggerRow of trigger.data.trigger_rows) {
-          if (!triggerRow.trigger_doctype) continue
-          for (const cond of (triggerRow.conditions || [])) {
-            if (cond.condition_field) {
-              conditions.push({
-                condition_field: cond.condition_field,
-                condition_operator: cond.condition_operator || '=',
-                condition_value: cond.condition_value || '',
-              })
-            }
-          }
-          triggers.push({
-            trigger_doctype: triggerRow.trigger_doctype,
-            trigger_event: triggerRow.trigger_event || 'On Update',
-            condition_logic: triggerRow.condition_logic || 'All must match',
-            conditions: conditions,
-          })
-        }
-      } else {
-        // Single trigger node format (direct data on node)
-        for (const cond of (trigger.data.conditions || [])) {
-          if (cond.condition_field) {
-            conditions.push({
-              condition_field: cond.condition_field,
-              condition_operator: cond.condition_operator || '=',
-              condition_value: cond.condition_value || '',
-            })
-          }
-        }
-        triggers.push({
-          trigger_doctype: trigger.data.trigger_doctype,
-          trigger_event: trigger.data.trigger_event || 'On Update',
-          condition_logic: trigger.data.condition_logic || 'All must match',
-          conditions: conditions,
-        })
-      }
+      triggers.push({
+        trigger_doctype: trigger.data.trigger_doctype,
+        trigger_event: trigger.data.trigger_event || 'On Update',
+        condition_logic: trigger.data.condition_logic || 'All must match',
+        conditions: trigger.data.conditions || [],
+      })
     }
 
     const result = await saveAutomation({
@@ -917,30 +887,13 @@ onMounted(async () => {
           // (graph_definition JSON stores positions but conditions live in the DB triggers table)
           if (auto.triggers && auto.triggers.length) {
             const triggerNodes = nodes.value.filter(n => n.type === 'trigger')
-            if (triggerNodes.length > 1) {
-              // Multiple trigger nodes in graph — match by index
-              for (let i = 0; i < triggerNodes.length && i < auto.triggers.length; i++) {
-                const t = auto.triggers[i]
-                triggerNodes[i].data.trigger_doctype = t.trigger_doctype || ''
-                triggerNodes[i].data.trigger_event = t.trigger_event || 'On Update'
-                triggerNodes[i].data.condition_logic = t.condition_logic || 'All must match'
-                triggerNodes[i].data.conditions = t.conditions || []
-              }
-            } else if (triggerNodes.length === 1) {
-              // Single trigger node — load all triggers as trigger_rows for multi-trigger config
-              const trigger = triggerNodes[0]
-              trigger.data.trigger_rows = auto.triggers.map(t => ({
-                trigger_doctype: t.trigger_doctype || '',
-                trigger_event: t.trigger_event || 'On Update',
-                condition_logic: t.condition_logic || 'All must match',
-                conditions: t.conditions || [],
-              }))
-              // Also set legacy flat fields for backward compat
-              const firstTrigger = auto.triggers[0]
-              trigger.data.trigger_doctype = trigger.data.trigger_doctype || firstTrigger.trigger_doctype || ''
-              trigger.data.trigger_event = trigger.data.trigger_event || firstTrigger.trigger_event || 'On Update'
-              trigger.data.condition_logic = firstTrigger.condition_logic || 'All must match'
-              trigger.data.conditions = firstTrigger.conditions || []
+            // Match triggers by index — each graph trigger node maps to a DB trigger row
+            for (let i = 0; i < triggerNodes.length && i < auto.triggers.length; i++) {
+              const t = auto.triggers[i]
+              triggerNodes[i].data.trigger_doctype = t.trigger_doctype || ''
+              triggerNodes[i].data.trigger_event = t.trigger_event || 'On Update'
+              triggerNodes[i].data.condition_logic = t.condition_logic || 'All must match'
+              triggerNodes[i].data.conditions = t.conditions || []
             }
           }
 
@@ -967,17 +920,10 @@ onMounted(async () => {
         }
       } else if (auto.triggers && auto.triggers.length) {
         // Fallback: no graph_definition, populate from triggers table
-        // Create multiple trigger nodes from the triggers array
         const defaultTrigger = nodes.value.find(n => n.id === 'trigger')
         if (defaultTrigger && auto.triggers.length === 1) {
           // Single trigger — use the default node
           const t = auto.triggers[0]
-          defaultTrigger.data.trigger_rows = [{
-            trigger_doctype: t.trigger_doctype || '',
-            trigger_event: t.trigger_event || 'On Update',
-            condition_logic: t.condition_logic || 'All must match',
-            conditions: t.conditions || [],
-          }]
           defaultTrigger.data.trigger_doctype = t.trigger_doctype || ''
           defaultTrigger.data.trigger_event = t.trigger_event || 'On Update'
           defaultTrigger.data.condition_logic = t.condition_logic || 'All must match'
