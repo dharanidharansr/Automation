@@ -627,7 +627,8 @@ class TestTriggerDoctypePseudoField(IntegrationTestCase):
             execute_automation(**kwargs)
 
         # --- Lead triggers -> IF __trigger_doctype__ = "Lead" -> TRUE -> action-lead ---
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             lead = frappe.get_doc({"doctype": "Lead", "lead_name": "PseudoField Test Lead"})
             lead.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -649,7 +650,8 @@ class TestTriggerDoctypePseudoField(IntegrationTestCase):
         self.assertIn("TRUE", branch_entries[0].get("output", ""))
 
         # --- ToDo triggers -> IF __trigger_doctype__ = "Lead" -> FALSE -> action-todo ---
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             todo = frappe.get_doc({"doctype": "ToDo", "description": "PseudoField Test ToDo"})
             todo.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -715,7 +717,8 @@ class TestTriggerDoctypePseudoField(IntegrationTestCase):
             execute_automation(**kwargs)
 
         # --- Lead triggers -> case-0 ("Lead") ---
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Switch PseudoField Lead"})
             lead.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -733,7 +736,8 @@ class TestTriggerDoctypePseudoField(IntegrationTestCase):
         self.assertIn("case-0", branch_entries[0].get("branch_taken", ""))
 
         # --- ToDo triggers -> case-1 ("ToDo") ---
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             todo = frappe.get_doc({"doctype": "ToDo", "description": "Switch PseudoField ToDo"})
             todo.insert(ignore_permissions=True)
             frappe.db.commit()
@@ -751,7 +755,8 @@ class TestTriggerDoctypePseudoField(IntegrationTestCase):
         self.assertIn("case-1", branch_entries_todo[0].get("branch_taken", ""))
 
         # --- Note triggers -> default (no case matches "Note") ---
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             note = frappe.get_doc({"doctype": "Note", "title": "Switch PseudoField Note", "content": "test"})
             note.insert(ignore_permissions=True)
             frappe.db.commit()

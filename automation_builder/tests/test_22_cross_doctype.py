@@ -327,6 +327,7 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         - Common field (name) resolves correctly on both branches
         - Doctype-specific field (lead_name) resolves on Lead, empty on ToDo
         """
+        from unittest.mock import patch
         from automation_builder.action_types._helpers import resolve_value
         from automation_builder.dispatcher import execute_automation
 
@@ -358,52 +359,54 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         auto.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # --- Branch 1: Lead triggers the automation ---
-        lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Any Mode Lead"})
-        lead.insert(ignore_permissions=True)
-        frappe.db.commit()
+        with patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
+            # --- Branch 1: Lead triggers the automation ---
+            lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Any Mode Lead"})
+            lead.insert(ignore_permissions=True)
+            frappe.db.commit()
 
-        execute_automation(auto.name, "Lead", lead.name)
+            execute_automation(auto.name, "Lead", lead.name)
 
-        runs_lead = frappe.get_all(
-            "Automation Run",
-            filters={"automation": auto.name, "reference_doctype": "Lead"},
-            fields=["name", "status"],
-        )
-        self.assertTrue(len(runs_lead) > 0, "Lead trigger should create a run")
-        self.assertEqual(runs_lead[0].status, "Success")
+            runs_lead = frappe.get_all(
+                "Automation Run",
+                filters={"automation": auto.name, "reference_doctype": "Lead"},
+                fields=["name", "status"],
+            )
+            self.assertTrue(len(runs_lead) > 0, "Lead trigger should create a run")
+            self.assertEqual(runs_lead[0].status, "Success")
 
-        # Verify token resolution: common field resolves, lead_name resolves
-        lead_context = {"doc": lead, "ref_doctype": "Lead", "ref_name": lead.name}
-        lead_subject = resolve_value("Doc: {{trigger.name}} Lead: {{trigger.lead_name}}", lead_context)
-        self.assertIn(lead.name, lead_subject)
-        self.assertIn("Any Mode Lead", lead_subject)
+            # Verify token resolution: common field resolves, lead_name resolves
+            lead_context = {"doc": lead, "ref_doctype": "Lead", "ref_name": lead.name}
+            lead_subject = resolve_value("Doc: {{trigger.name}} Lead: {{trigger.lead_name}}", lead_context)
+            self.assertIn(lead.name, lead_subject)
+            self.assertIn("Any Mode Lead", lead_subject)
 
-        # --- Branch 2: ToDo triggers the automation ---
-        todo = frappe.get_doc({"doctype": "ToDo", "description": "Any Mode ToDo"})
-        todo.insert(ignore_permissions=True)
-        frappe.db.commit()
+            # --- Branch 2: ToDo triggers the automation ---
+            todo = frappe.get_doc({"doctype": "ToDo", "description": "Any Mode ToDo"})
+            todo.insert(ignore_permissions=True)
+            frappe.db.commit()
 
-        execute_automation(auto.name, "ToDo", todo.name)
+            execute_automation(auto.name, "ToDo", todo.name)
 
-        runs_todo = frappe.get_all(
-            "Automation Run",
-            filters={"automation": auto.name, "reference_doctype": "ToDo"},
-            fields=["name", "status"],
-        )
-        self.assertTrue(len(runs_todo) > 0, "ToDo trigger should create a run")
-        self.assertEqual(runs_todo[0].status, "Success")
+            runs_todo = frappe.get_all(
+                "Automation Run",
+                filters={"automation": auto.name, "reference_doctype": "ToDo"},
+                fields=["name", "status"],
+            )
+            self.assertTrue(len(runs_todo) > 0, "ToDo trigger should create a run")
+            self.assertEqual(runs_todo[0].status, "Success")
 
-        # Verify token resolution: common field resolves, lead_name resolves to empty
-        todo_context = {"doc": todo, "ref_doctype": "ToDo", "ref_name": todo.name}
-        todo_subject = resolve_value("Doc: {{trigger.name}} Lead: {{trigger.lead_name}}", todo_context)
-        self.assertIn(todo.name, todo_subject)
-        self.assertNotIn("Any Mode Lead", todo_subject)
-        # lead_name doesn't exist on ToDo → resolves to empty
-        self.assertEqual(todo_subject, f"Doc: {todo.name} Lead: ")
+            # Verify token resolution: common field resolves, lead_name resolves to empty
+            todo_context = {"doc": todo, "ref_doctype": "ToDo", "ref_name": todo.name}
+            todo_subject = resolve_value("Doc: {{trigger.name}} Lead: {{trigger.lead_name}}", todo_context)
+            self.assertIn(todo.name, todo_subject)
+            self.assertNotIn("Any Mode Lead", todo_subject)
+            # lead_name doesn't exist on ToDo → resolves to empty
+            self.assertEqual(todo_subject, f"Doc: {todo.name} Lead: ")
 
     def test_any_mode_node_executes_not_skips(self):
         """In 'Any' mode, the shared node never skips based on doctype mismatch."""
+        from unittest.mock import patch
         from automation_builder.dispatcher import execute_automation
 
         auto = frappe.get_doc({
@@ -434,25 +437,26 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         auto.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # Lead triggers → should execute (not skip)
-        lead = frappe.get_doc({"doctype": "Lead", "lead_name": "NoSkip Lead"})
-        lead.insert(ignore_permissions=True)
-        frappe.db.commit()
-        execute_automation(auto.name, "Lead", lead.name)
+        with patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
+            # Lead triggers → should execute (not skip)
+            lead = frappe.get_doc({"doctype": "Lead", "lead_name": "NoSkip Lead"})
+            lead.insert(ignore_permissions=True)
+            frappe.db.commit()
+            execute_automation(auto.name, "Lead", lead.name)
 
-        runs_lead = frappe.get_all(
-            "Automation Run",
-            filters={"automation": auto.name, "reference_doctype": "Lead"},
-            fields=["status"],
-        )
-        self.assertEqual(len(runs_lead), 1, "Lead should create exactly one run")
-        self.assertEqual(runs_lead[0].status, "Success")
+            runs_lead = frappe.get_all(
+                "Automation Run",
+                filters={"automation": auto.name, "reference_doctype": "Lead"},
+                fields=["status"],
+            )
+            self.assertEqual(len(runs_lead), 1, "Lead should create exactly one run")
+            self.assertEqual(runs_lead[0].status, "Success")
 
-        # Note triggers → should also execute (not skip)
-        note = frappe.get_doc({"doctype": "Note", "title": "NoSkip Note", "content": "test"})
-        note.insert(ignore_permissions=True)
-        frappe.db.commit()
-        execute_automation(auto.name, "Note", note.name)
+            # Note triggers → should also execute (not skip)
+            note = frappe.get_doc({"doctype": "Note", "title": "NoSkip Note", "content": "test"})
+            note.insert(ignore_permissions=True)
+            frappe.db.commit()
+            execute_automation(auto.name, "Note", note.name)
 
         runs_note = frappe.get_all(
             "Automation Run",
@@ -470,6 +474,7 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         a different doctype — and that the try/except in resolve_value does
         NOT mask this skip by producing empty-string resolved fields instead.
         """
+        from unittest.mock import patch
         from automation_builder.dispatcher import execute_automation
 
         auto = frappe.get_doc({
@@ -500,32 +505,33 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         auto.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        # ToDo triggers → action scoped to Lead should SKIP
-        todo = frappe.get_doc({"doctype": "ToDo", "description": "Skip test ToDo"})
-        todo.insert(ignore_permissions=True)
-        frappe.db.commit()
-        execute_automation(auto.name, "ToDo", todo.name)
+        with patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
+            # ToDo triggers → action scoped to Lead should SKIP
+            todo = frappe.get_doc({"doctype": "ToDo", "description": "Skip test ToDo"})
+            todo.insert(ignore_permissions=True)
+            frappe.db.commit()
+            execute_automation(auto.name, "ToDo", todo.name)
 
-        runs_todo = frappe.get_all(
-            "Automation Run",
-            filters={"automation": auto.name, "reference_doctype": "ToDo"},
-            fields=["status", "log"],
-        )
-        self.assertEqual(len(runs_todo), 1, "ToDo should create exactly one run")
-        self.assertEqual(runs_todo[0].status, "Success")  # Run overall is Success (skip is not failure)
+            runs_todo = frappe.get_all(
+                "Automation Run",
+                filters={"automation": auto.name, "reference_doctype": "ToDo"},
+                fields=["status", "log"],
+            )
+            self.assertEqual(len(runs_todo), 1, "ToDo should create exactly one run")
+            self.assertEqual(runs_todo[0].status, "Success")  # Run overall is Success (skip is not failure)
 
-        # Verify the log shows Skipped with scoped message
-        log_data = json.loads(runs_todo[0].log)
-        self.assertEqual(len(log_data), 1)
-        self.assertEqual(log_data[0]["status"], "Skipped")
-        self.assertIn("scoped to Lead", log_data[0]["output"])
-        self.assertIn("triggered by ToDo", log_data[0]["output"])
+            # Verify the log shows Skipped with scoped message
+            log_data = json.loads(runs_todo[0].log)
+            self.assertEqual(len(log_data), 1)
+            self.assertEqual(log_data[0]["status"], "Skipped")
+            self.assertIn("scoped to Lead", log_data[0]["output"])
+            self.assertIn("triggered by ToDo", log_data[0]["output"])
 
-        # Lead triggers → same action should EXECUTE (not skip)
-        lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Skip Test Lead"})
-        lead.insert(ignore_permissions=True)
-        frappe.db.commit()
-        execute_automation(auto.name, "Lead", lead.name)
+            # Lead triggers → same action should EXECUTE (not skip)
+            lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Skip Test Lead"})
+            lead.insert(ignore_permissions=True)
+            frappe.db.commit()
+            execute_automation(auto.name, "Lead", lead.name)
 
         runs_lead = frappe.get_all(
             "Automation Run",
@@ -584,7 +590,8 @@ class TestAnyDoctypeMode(IntegrationTestCase):
             from automation_builder.dispatcher import execute_automation
             execute_automation(**kwargs)
 
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             # Insert a ToDo — triggers on_doc_event → should find auto and enqueue
             todo = frappe.get_doc({"doctype": "ToDo", "description": "Full path skip test"})
             todo.insert(ignore_permissions=True)
@@ -603,7 +610,8 @@ class TestAnyDoctypeMode(IntegrationTestCase):
         self.assertIn("triggered by ToDo", log_todo[0]["output"])
 
         # Now trigger via Lead — same auto, same path, should execute
-        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue):
+        with patch("automation_builder.dispatcher.frappe.enqueue", side_effect=_capture_enqueue), \
+             patch("automation_builder.action_types.telegram._get_bot_token", return_value=None):
             lead = frappe.get_doc({"doctype": "Lead", "lead_name": "Full Path Skip Lead"})
             lead.insert(ignore_permissions=True)
             frappe.db.commit()
